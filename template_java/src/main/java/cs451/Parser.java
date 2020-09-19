@@ -58,7 +58,7 @@ public class Parser {
     }
 
     private void help() {
-        System.err.println("Usage: --id ID --hosts HOSTS --barier NAME:PORT --output OUTPUT [config]");
+        System.err.println("Usage: --id ID --hosts HOSTS --barrier NAME:PORT --output OUTPUT [config]");
         System.exit(1);
     }
 
