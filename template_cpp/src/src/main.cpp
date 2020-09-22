@@ -4,7 +4,9 @@
 
 #include "barrier.hpp"
 #include "parser.hpp"
+#include "hello.h"
 #include <signal.h>
+
 
 static void stop(int) {
   // reset signal handlers to default
@@ -31,6 +33,9 @@ int main(int argc, char **argv) {
 
   Parser parser(argc, argv, requireConfig);
   parser.parse();
+
+  hello();
+  std::cout << std::endl;
 
   std::cout << "My PID: " << getpid() << "\n";
   std::cout << "Use `kill -SIGINT " << getpid() << "` or `kill -SIGTERM "
@@ -64,6 +69,15 @@ int main(int argc, char **argv) {
   std::cout << "Machine-readbale Port: " << barrier.port << "\n";
   std::cout << "\n";
 
+  std::cout << "Signal:\n";
+  std::cout << "========\n";
+  auto signal = parser.signal();
+  std::cout << "Human-readable IP: " << signal.ipReadable() << "\n";
+  std::cout << "Machine-readable IP: " << signal.ip << "\n";
+  std::cout << "Human-readbale Port: " << signal.portReadable() << "\n";
+  std::cout << "Machine-readbale Port: " << signal.port << "\n";
+  std::cout << "\n";
+
   std::cout << "Path to output:\n";
   std::cout << "===============\n";
   std::cout << parser.outputPath() << "\n\n";
@@ -76,10 +90,20 @@ int main(int argc, char **argv) {
 
   std::cout << "Doing some initialization...\n\n";
 
+  Coordinator coordinator(parser.id(), barrier, signal);
+
   std::cout << "Waiting for all processes to finish initialization\n\n";
-  waitOnBarrier(barrier);
+  coordinator.waitOnBarrier();
 
   std::cout << "Broadcasting messages...\n\n";
+
+  std::cout << "Signaling end of broadcasting messages\n\n";
+  coordinator.finishedBroadcasting();
+
+
+  while (true) {
+    std::this_thread::sleep_for(std::chrono::seconds(60));
+  }
 
   return 0;
 }
