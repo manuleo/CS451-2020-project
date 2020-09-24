@@ -3,6 +3,7 @@ package cs451;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.net.InetAddress;
 import java.net.Socket;
 
 public class Main {
@@ -13,6 +14,8 @@ public class Main {
 
         //write/flush output file if necessary
         System.out.println("Writing output.");
+        System.out.println(PerfectLink.getRecMessage());
+        System.out.println(PerfectLink.getSentMessage());
     }
 
     private static void initSignalHandlers() {
@@ -52,17 +55,39 @@ public class Main {
 
         Coordinator coordinator = new Coordinator(parser.myId(), parser.barrierIp(), parser.barrierPort(), parser.signalIp(), parser.signalPort());
 
-	System.out.println("Waiting for all processes for finish initialization");
-        coordinator.waitOnBarrier();
+        System.out.println("Waiting for all processes for finish initialization");
+            coordinator.waitOnBarrier();
 
-	System.out.println("Broadcasting messages...");
+        System.out.println("Broadcasting messages...");
+        try {
+            testPerfectLink(parser);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
 
-	System.out.println("Signaling end of broadcasting messages");
+        System.out.println("Signaling end of broadcasting messages");
         coordinator.finishedBroadcasting();
 
 	while (true) {
 	    // Sleep for 1 hour
 	    Thread.sleep(60 * 60 * 1000);
 	}
+    }
+
+    private static void testPerfectLink(Parser parser) throws IOException {
+        if (parser.myId()==1) {
+            for (int i=0; i<6; i++) {
+                PerfectLink pf1 = new PerfectLink(parser.myId(), InetAddress.getByName(parser.hosts().get(1).getIp()),
+                        parser.hosts().get(1).getPort(), parser.hosts().get(0).getPort(), String.valueOf(i));
+                pf1.send();
+            }
+        }
+        else {
+            PerfectLink pf2 = new PerfectLink(parser.myId(), InetAddress.getByName(parser.hosts().get(0).getIp()),
+                    parser.hosts().get(0).getPort(), parser.hosts().get(1).getPort(), "");
+            pf2.receive();
+        }
+        System.out.println(PerfectLink.getRecMessage());
+        System.out.println(PerfectLink.getSentMessage());
     }
 }
