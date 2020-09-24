@@ -64,11 +64,7 @@ public class Parser {
     }
 
     private void help() {
-<<<<<<< HEAD
-        System.err.println("Usage: --id ID --hosts HOSTS --barrier NAME:PORT --output OUTPUT [config]");
-=======
         System.err.println("Usage: ./run.sh --id ID --hosts HOSTS --barrier NAME:PORT --signal NAME:PORT --output OUTPUT [config]");
->>>>>>> d43005ac482d21d14b7f90813c0a0899cea81442
         System.exit(1);
     }
 
