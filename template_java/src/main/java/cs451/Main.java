@@ -5,6 +5,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.InetAddress;
 import java.net.Socket;
+import java.net.UnknownHostException;
 
 public class Main {
 
@@ -56,12 +57,12 @@ public class Main {
         Coordinator coordinator = new Coordinator(parser.myId(), parser.barrierIp(), parser.barrierPort(), parser.signalIp(), parser.signalPort());
 
         System.out.println("Waiting for all processes for finish initialization");
-            coordinator.waitOnBarrier();
+        coordinator.waitOnBarrier();
 
         System.out.println("Broadcasting messages...");
         try {
             testPerfectLink(parser);
-        } catch (IOException e) {
+        } catch (UnknownHostException e) {
             e.printStackTrace();
         }
 
@@ -74,20 +75,22 @@ public class Main {
 	}
     }
 
-    private static void testPerfectLink(Parser parser) throws IOException {
+    private static void testPerfectLink(Parser parser) throws UnknownHostException {
         if (parser.myId()==1) {
-            for (int i=0; i<6; i++) {
-                PerfectLink pf1 = new PerfectLink(parser.myId(), InetAddress.getByName(parser.hosts().get(1).getIp()),
-                        parser.hosts().get(1).getPort(), parser.hosts().get(0).getPort(), String.valueOf(i));
-                pf1.send();
+            PerfectLink pf1 = new PerfectLink(parser.myId(), InetAddress.getByName(parser.hosts().get(1).getIp()),
+                    parser.hosts().get(1).getPort(), parser.hosts().get(0).getPort());
+            pf1.receive();
+            for (int i=0; i<100; i++) {
+                pf1.send(i);
             }
         }
         else {
             PerfectLink pf2 = new PerfectLink(parser.myId(), InetAddress.getByName(parser.hosts().get(0).getIp()),
-                    parser.hosts().get(0).getPort(), parser.hosts().get(1).getPort(), "");
+                    parser.hosts().get(0).getPort(), parser.hosts().get(1).getPort());
             pf2.receive();
+            for (int i=0; i<100; i++) {
+                pf2.send(i);
+            }
         }
-        System.out.println(PerfectLink.getRecMessage());
-        System.out.println(PerfectLink.getSentMessage());
     }
 }
