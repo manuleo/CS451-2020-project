@@ -1,13 +1,12 @@
 package cs451;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.net.InetAddress;
-import java.net.Socket;
 import java.net.UnknownHostException;
+import java.util.HashSet;
+import java.util.Set;
 
 public class Main {
+    private static Set<String> recPack = new HashSet<>();
 
     private static void handleSignal() {
         //immediately stop network packet processing
@@ -15,7 +14,7 @@ public class Main {
 
         //write/flush output file if necessary
         System.out.println("Writing output.");
-        System.out.println(PerfectLink.getRecMessage());
+        System.out.println(recPack);
         System.out.println(PerfectLink.getSentMessage());
     }
 
@@ -60,37 +59,49 @@ public class Main {
         coordinator.waitOnBarrier();
 
         System.out.println("Broadcasting messages...");
-        try {
-            testPerfectLink(parser);
-        } catch (UnknownHostException e) {
-            e.printStackTrace();
-        }
+        testBestEffortBroadcast(parser);
 
         System.out.println("Signaling end of broadcasting messages");
         coordinator.finishedBroadcasting();
 
-	while (true) {
-	    // Sleep for 1 hour
-	    Thread.sleep(60 * 60 * 1000);
-	}
+        while (true) {
+            // Sleep for 1 hour
+            Thread.sleep(60 * 60 * 1000);
+        }
     }
 
-    private static void testPerfectLink(Parser parser) throws UnknownHostException {
-        if (parser.myId()==1) {
-            PerfectLink pf1 = new PerfectLink(parser.myId(), InetAddress.getByName(parser.hosts().get(1).getIp()),
-                    parser.hosts().get(1).getPort(), parser.hosts().get(0).getPort());
-            pf1.receive();
-            for (int i=0; i<100; i++) {
-                pf1.send(i);
+//    private static void testPerfectLink(Parser parser) throws UnknownHostException {
+//        if (parser.myId()==1) {
+//            PerfectLink pf1 = new PerfectLink(parser.myId(), parser.hosts().get(0).getPort());
+//            pf1.receiveAndDeliver();
+//            for (int i=0; i<100; i++) {
+//                pf1.send(i, InetAddress.getByName(parser.hosts().get(1).getIp()),
+//                        parser.hosts().get(1).getPort());
+//            }
+//        }
+//        else {
+//            PerfectLink pf2 = new PerfectLink(parser.myId(), parser.hosts().get(1).getPort());
+//            pf2.receiveAndDeliver();
+//            for (int i=0; i<100; i++) {
+//                pf2.send(i, InetAddress.getByName(parser.hosts().get(0).getIp()),
+//                        parser.hosts().get(0).getPort());
+//            }
+//        }
+
+    private static void testBestEffortBroadcast(Parser parser) {
+        BestEffortBroadcast beb = new BestEffortBroadcast(parser.hosts(), parser.myId());
+        class TestDeliver extends Thread {
+            @Override
+            public void run() {
+                while (true) {
+                    String gotPack = beb.deliver();
+                    System.out.println(gotPack);
+                    recPack.add(gotPack);
+                }
             }
         }
-        else {
-            PerfectLink pf2 = new PerfectLink(parser.myId(), InetAddress.getByName(parser.hosts().get(0).getIp()),
-                    parser.hosts().get(0).getPort(), parser.hosts().get(1).getPort());
-            pf2.receive();
-            for (int i=0; i<100; i++) {
-                pf2.send(i);
-            }
-        }
+        new TestDeliver().start();
+        for (int i = 0; i<5; i++)
+            beb.broadcast(i);
     }
 }
