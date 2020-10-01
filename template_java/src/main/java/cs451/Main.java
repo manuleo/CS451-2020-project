@@ -15,6 +15,7 @@ public class Main {
         //write/flush output file if necessary
         System.out.println("Writing output.");
         System.out.println(recPack);
+        System.out.println(recPack.size());
         System.out.println(PerfectLink.getSentMessage());
     }
 
@@ -95,13 +96,14 @@ public class Main {
             public void run() {
                 while (true) {
                     String gotPack = beb.deliver();
-                    System.out.println(gotPack);
+                    if (gotPack==null)
+                        continue;
                     recPack.add(gotPack);
                 }
             }
         }
         new TestDeliver().start();
-        for (int i = 0; i<5; i++)
+        for (int i = 0; i<25; i++)
             beb.broadcast(i);
     }
 }

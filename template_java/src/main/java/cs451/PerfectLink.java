@@ -135,13 +135,13 @@ public class PerfectLink {
         Receive rec = new Receive();
         rec.start();
         try {
-            System.out.println("I'm joining in PF receive");
+            //System.out.println("I'm joining in PF receive");
             rec.join();
         } catch (InterruptedException e) {
             System.out.println("Exception when joining to receive " + e.toString());
         }
-        System.out.println("I have this packet in PF " + rec.getGotPack());
-        System.out.println("I'm returning in PF receive");
+        //System.out.println("I have this packet in PF " + rec.getGotPack());
+        //System.out.println("I'm returning in PF receive");
         return rec.getGotPack();
     }
 
@@ -157,7 +157,7 @@ public class PerfectLink {
         try {
             dsRec.receive(dpRec);
         } catch (SocketTimeoutException ignored) {
-            System.out.println("Timeout");
+            //System.out.println("Timeout");
             return false;
         } catch (IOException e) {
             System.out.println("Receiving error: " + e.toString());

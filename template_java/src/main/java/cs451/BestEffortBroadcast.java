@@ -57,13 +57,13 @@ public class BestEffortBroadcast {
         Receive rec = new Receive();
         rec.start();
         try {
-            System.out.println("I'm joining in BEB deliver");
+            //System.out.println("I'm joining in BEB deliver");
             rec.join();
         } catch (InterruptedException e) {
             System.out.println("Exception when joining to receive in BestEffortBroadcast " + e.toString());
         }
-        System.out.println("I have this packet in BEB " + rec.getGotPack());
-        System.out.println("I'm returning in BEB deliver");
+        //System.out.println("I have this packet in BEB " + rec.getGotPack());
+        //System.out.println("I'm returning in BEB deliver");
         return rec.getGotPack();
     }
 
