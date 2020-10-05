@@ -96,7 +96,7 @@ public class Main {
             public void run() {
                 while (true) {
                     String gotPack = beb.deliver();
-                    if (gotPack==null)
+                    if (gotPack==null) //TODO: check on this problem
                         continue;
                     recPack.add(gotPack);
                 }
