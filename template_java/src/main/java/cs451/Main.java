@@ -1,8 +1,7 @@
 package cs451;
 
-import java.net.InetAddress;
-import java.net.UnknownHostException;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 public class Main {
@@ -60,7 +59,7 @@ public class Main {
         coordinator.waitOnBarrier();
 
         System.out.println("Broadcasting messages...");
-        testBestEffortBroadcast(parser);
+        testUniformReliableBroadcast(parser);
 
         System.out.println("Signaling end of broadcasting messages");
         coordinator.finishedBroadcasting();
@@ -95,15 +94,29 @@ public class Main {
             @Override
             public void run() {
                 while (true) {
-                    String gotPack = beb.deliver();
-                    if (gotPack==null) //TODO: check on this problem
-                        continue;
+                    String gotPack = beb.receiveAndDeliver();
                     recPack.add(gotPack);
                 }
             }
         }
         new TestDeliver().start();
         for (int i = 0; i<25; i++)
-            beb.broadcast(i);
+            beb.broadcast(String.valueOf(i));
+    }
+
+    private static void testUniformReliableBroadcast(Parser parser) {
+        UniformReliableBroadcast urb = new UniformReliableBroadcast(parser.hosts(), parser.myId());
+        class TestDeliver extends Thread {
+            @Override
+            public void run() {
+                while (true) {
+                    String gotPack = urb.receiveAndDeliver();
+                    recPack.add(gotPack);
+                }
+            }
+        }
+        new TestDeliver().start();
+        for (int i = 0; i<100; i++)
+            urb.broadcast(String.valueOf(i));
     }
 }
