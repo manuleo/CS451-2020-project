@@ -11,11 +11,12 @@ public class BestEffortBroadcast {
     private int id;
     private PerfectLink pf;
     private HashSet<String> myMessage = new HashSet<>();
+    private static final Object lock = new Object();
 
     public BestEffortBroadcast(List<Host> hosts, int id) {
         this.hosts = hosts;
         this.id = id;
-        this.pf = new PerfectLink(id, hosts.get(id-1).getPort(), hosts.size());
+        this.pf = new PerfectLink(id, hosts.get(id-1).getPort(), hosts);
     }
 
     private class Broadcast extends Thread{
@@ -28,7 +29,9 @@ public class BestEffortBroadcast {
         public void run() {
             for (Host h: hosts) {
                 if (id == h.getId()) {
-                    myMessage.add(message); //TODO: check on delivering to me
+                    synchronized (lock) {
+                        myMessage.add(message); //TODO: check on delivering to me
+                    }
                     continue;
                 }
                 try {
@@ -46,19 +49,19 @@ public class BestEffortBroadcast {
 
     private class Receive extends Thread {
 
-        private String gotPack;
+        private List<String> gotPacks;
 
         @Override
         public void run() {
-            gotPack = pf.receiveAndDeliver();
+            gotPacks = pf.receiveAndDeliver();
         }
 
-        public String getGotPack() {
-            return gotPack;
+        public List<String> getGotPacks() {
+            return gotPacks;
         }
     }
 
-    public String receiveAndDeliver() {
+    public List<String> receiveAndDeliver() {
         Receive rec = new Receive();
         rec.start();
         try {
@@ -69,11 +72,11 @@ public class BestEffortBroadcast {
         }
         //System.out.println("I have this packet in BEB " + rec.getGotPack());
         //System.out.println("I'm returning in BEB deliver");
-        return deliver(rec.getGotPack());
+        return deliver(rec.getGotPacks());
     }
 
-    private String deliver(String message) {
-        return message;
+    private List<String> deliver(List<String> messages) {
+        return messages;
     }
 
     @Override

@@ -11,6 +11,8 @@ public class UniformReliableBroadcast {
     HashMap<String, Integer> ack = new HashMap<>();
     private final int id;
     private final int minCorrect;
+    private static final Object lockPending = new Object();
+    private static final Object lockAck = new Object();
 
     public UniformReliableBroadcast(List<Host> hosts, int id) {
         this.beb = new BestEffortBroadcast(hosts, id);
@@ -34,9 +36,13 @@ public class UniformReliableBroadcast {
         @Override
         public void run() {
             String sentMessage = String.format("%d %s", id, message);
-            System.out.println("Sending " + sentMessage);
-            pending.add(sentMessage);
-            ack.put(sentMessage, 1);
+            //System.out.println("Sending " + sentMessage);
+            synchronized (lockPending) {
+                pending.add(sentMessage);
+            }
+            synchronized (lockAck) {
+                ack.put(sentMessage, 1);
+            }
             beb.broadcast(sentMessage);
         }
     }
@@ -46,7 +52,7 @@ public class UniformReliableBroadcast {
     }
 
     private class Receive extends Thread {
-        String deliver;
+        List<String> deliver;
 
         private boolean canDeliver(String key) {
             return ack.getOrDefault(key, 0) >= minCorrect;
@@ -56,51 +62,63 @@ public class UniformReliableBroadcast {
         public void run() {
             String key;
             while (true) {
-                String gotPack = beb.receiveAndDeliver();
-                String[] gotSplit = gotPack.split(" ");
-                System.out.println("gotPack: " + gotPack);
-                if (gotSplit.length == 2)
-                    key = gotPack;
-                else
-                    key = gotSplit[1] + " " + gotSplit[2];
-                //System.out.println("key: " + key);
-                //System.out.println("ACKs: ");
+                List<String> gotPacks = beb.receiveAndDeliver();
+                for (String gotPack: gotPacks) {
+                    String[] gotSplit = gotPack.split(" ");
+                    //System.out.println("gotPack: " + gotPack);
+                    if (gotSplit.length == 2)
+                        key = gotPack;
+                    else
+                        key = gotSplit[1] + " " + gotSplit[2];
+
+//                    if (gotSplit.length==2)
+//                        System.out.println("Received " + gotPack);
+                    //System.out.println("key: " + key);
+                    //System.out.println("ACKs: ");
 //                for (Map.Entry<String, Integer> entry : ack.entrySet()) {
 //                    System.out.println(entry.getKey() + "=" + entry.getValue());
 //                }
-                if (!ack.containsKey(key))
-                    ack.put(key, 1);
-                else {
-                    Integer oldAck = ack.get(key);
-                    ack.put(key, oldAck + 1);
+                    synchronized (lockAck) {
+                        if (!ack.containsKey(key))
+                            ack.put(key, 1);
+                        else {
+                            Integer oldAck = ack.get(key);
+                            ack.put(key, oldAck + 1);
+                        }
+                    }
+                    //System.out.println("ack[key]: " + ack.get(key));
+                    //System.out.println("Pending: " + pending);
+                    if (!pending.contains(key)) {
+                        synchronized (lockPending) {
+                            pending.add(key);
+                        }
+                        String sentMessage = String.format("%d %s", id, key);
+                        //System.out.println("Sending " + sentMessage);
+                        beb.broadcast(sentMessage);
+                    }
                 }
-                //System.out.println("ack[key]: " + ack.get(key));
-                System.out.println("Pending: " + pending);
-                if (!pending.contains(key)) {
-                    pending.add(key);
-                    String sentMessage = String.format("%d %s", id, key);
-                    System.out.println("Sending " + sentMessage);
-                    beb.broadcast(sentMessage);
+                List <String> deliverable;
+                synchronized (lockPending) {
+                     deliverable = pending.stream()
+                            .filter(this::canDeliver)
+                            .filter(p -> !delivered.contains(p))
+                            .collect(Collectors.toList()); //TODO: check why an exception at this line
                 }
-                List <String> deliverable = pending.stream()
-                        .filter(this::canDeliver)
-                        .filter(p -> !delivered.contains(p))
-                        .collect(Collectors.toList());
-                System.out.println("Deliverable: " + deliverable);
+                //System.out.println("Deliverable: " + deliverable);
                 if (deliverable.size()!=0) {
-                    deliver = deliverable.get(0); // At each point in time at most one message can become deliverable
-                    delivered.add(deliver);
+                    deliver = deliverable;
+                    delivered.addAll(deliver);
                     break;
                 }
             }
         }
 
-        public String getDeliver() {
+        public List<String> getDeliver() {
             return deliver;
         }
     }
 
-    public String receiveAndDeliver() {
+    public List<String> receiveAndDeliver() {
         Receive rec = new Receive();
         rec.start();
         try {
@@ -111,7 +129,7 @@ public class UniformReliableBroadcast {
         return deliver(rec.getDeliver());
     }
 
-    private String deliver(String deliverable) {
+    private List<String> deliver(List<String> deliverable) {
         return deliverable;
     }
 }

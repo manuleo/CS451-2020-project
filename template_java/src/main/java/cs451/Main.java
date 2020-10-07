@@ -2,6 +2,7 @@ package cs451;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 public class Main {
@@ -13,9 +14,24 @@ public class Main {
 
         //write/flush output file if necessary
         System.out.println("Writing output.");
-        System.out.println(recPack);
+//        System.out.println(recPack);
         System.out.println(recPack.size());
-        System.out.println(PerfectLink.getSentMessage());
+//        Set<String> testPack = new HashSet<>();
+//        for(int h = 1; h<4; h++) {
+//            for (int m = 0; m < 50; m++) {
+//                String t = String.format("%d %d", h,m);
+//                testPack.add(t);
+//            }
+//        }
+//        testPack.removeAll(recPack);
+//        System.out.println("Missing messages " + testPack);
+//        System.out.println(PerfectLink.getSentMessage());
+//        for (Map.Entry<Integer, HashSet<String>> entry : PerfectLink.getRecACKs().entrySet()) {
+//                    System.out.println(entry.getKey() + "=" + entry.getValue());
+//        }
+//        System.out.println(PerfectLink.getRecMessage());
+//        System.out.println(PerfectLink.getGotRec());
+//        System.out.println(PerfectLink.getGotSend());
     }
 
     private static void initSignalHandlers() {
@@ -94,8 +110,8 @@ public class Main {
             @Override
             public void run() {
                 while (true) {
-                    String gotPack = beb.receiveAndDeliver();
-                    recPack.add(gotPack);
+                    List<String> gotPacks = beb.receiveAndDeliver();
+                    recPack.addAll(gotPacks);
                 }
             }
         }
@@ -110,13 +126,13 @@ public class Main {
             @Override
             public void run() {
                 while (true) {
-                    String gotPack = urb.receiveAndDeliver();
-                    recPack.add(gotPack);
+                    List<String> gotPacks = urb.receiveAndDeliver();
+                    recPack.addAll(gotPacks);
                 }
             }
         }
         new TestDeliver().start();
-        for (int i = 0; i<100; i++)
+        for (int i = 0; i<1000; i++)
             urb.broadcast(String.valueOf(i));
     }
 }

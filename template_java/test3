@@ -1,0 +1,18 @@
+My PID is 57553.
+Use 'kill -SIGINT 57553 ' or 'kill -SIGTERM 57553 ' to stop processing packets.
+My id is 3.
+List of hosts is:
+1, 127.0.0.1, 11001
+2, 127.0.0.1, 11002
+3, 127.0.0.1, 11003
+Barrier: 127.0.0.1:10000
+Signal: 127.0.0.1:20000
+Output: test2
+Config: dummy
+Waiting for all processes for finish initialization
+Accessing barrier...
+Immediately stopping network packet processing.
+Writing output.
+[]
+0
+[]
