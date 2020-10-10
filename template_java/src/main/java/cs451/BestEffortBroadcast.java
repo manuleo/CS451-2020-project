@@ -5,79 +5,87 @@ import java.net.UnknownHostException;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.LinkedBlockingQueue;
 
 public class BestEffortBroadcast {
     private List<Host> hosts;
     private int id;
     private PerfectLink pf;
     private HashSet<String> myMessage = new HashSet<>();
-    private static final Object lock = new Object();
+    private LinkedBlockingQueue<Packet> messageToSendDown;
+    private LinkedBlockingQueue<String> messageToSendUp;
+    private LinkedBlockingQueue<String> messageDeliveredDown;
+    private LinkedBlockingQueue<String> messageToDeliverUp;
 
-    public BestEffortBroadcast(List<Host> hosts, int id) {
+    public BestEffortBroadcast(List<Host> hosts, int id, LinkedBlockingQueue<String> messageToSendUp,
+                               LinkedBlockingQueue<String> messageToDeliverUp) {
         this.hosts = hosts;
         this.id = id;
-        this.pf = new PerfectLink(id, hosts.get(id-1).getPort(), hosts);
+        this.messageToSendUp = messageToSendUp;
+        this.messageToDeliverUp = messageToDeliverUp;
+        this.messageDeliveredDown = new LinkedBlockingQueue<>();
+        this.messageToSendDown = new LinkedBlockingQueue<>();
+        this.pf = new PerfectLink(id, hosts.get(id-1).getPort(), hosts, messageToSendDown, messageDeliveredDown);
+        receiveAndDeliver();
+        broadcast();
     }
 
     private class Broadcast extends Thread{
-        private final String message;
-        public Broadcast(String message) {
-            this.message = message;
-        }
 
         @Override
         public void run() {
-            for (Host h: hosts) {
-                if (id == h.getId()) {
-                    synchronized (lock) {
-                        myMessage.add(message); //TODO: check on delivering to me
-                    }
-                    continue;
-                }
+            while(true) {
+                String message = null;
                 try {
-                    pf.send(message, InetAddress.getByName(h.getIp()), h.getPort(), h.getId());
-                } catch (UnknownHostException e) {
-                    System.out.println("Unknown host in BestEffortBroadcast " + e.toString());
+                    message = messageToSendUp.take();
+                } catch (InterruptedException e) {
+                    System.out.println("Getting message in BEB error: " + e.toString());
+                }
+                for (Host h: hosts) {
+                    if (id == h.getId()) {
+                        myMessage.add(message); //TODO: check on delivering to me
+                        continue;
+                    }
+                    try {
+                        Packet p = new Packet(message, InetAddress.getByName(h.getIp()), h.getPort(), h.getId());
+                        messageToSendDown.put(p);
+                    } catch (UnknownHostException | InterruptedException e) {
+                        System.out.println("Error sending down in BEB " + e.toString());
+                    }
                 }
             }
         }
     }
 
-    public void broadcast(String message) {
-        new Broadcast(message).start();
+    public void broadcast() {
+        new Broadcast().start();
     }
 
     private class Receive extends Thread {
 
-        private List<String> gotPacks;
-
         @Override
         public void run() {
-            gotPacks = pf.receiveAndDeliver();
+            while(true) {
+                String message = null;
+                try {
+                    message = messageDeliveredDown.take();
+                } catch (InterruptedException e) {
+                    System.out.println("Error receiving from down in BEB " + e.toString());
+                }
+                try {
+                    messageToDeliverUp.put(message);
+                } catch (InterruptedException e) {
+                    System.out.println("Error sending up in BEB " + e.toString());
+                }
+            }
         }
 
-        public List<String> getGotPacks() {
-            return gotPacks;
-        }
     }
 
-    public List<String> receiveAndDeliver() {
-        Receive rec = new Receive();
-        rec.start();
-        try {
-            //System.out.println("I'm joining in BEB deliver");
-            rec.join();
-        } catch (InterruptedException e) {
-            System.out.println("Exception when joining to receive in BestEffortBroadcast " + e.toString());
-        }
-        //System.out.println("I have this packet in BEB " + rec.getGotPack());
-        //System.out.println("I'm returning in BEB deliver");
-        return deliver(rec.getGotPacks());
+    public void receiveAndDeliver() {
+        new Receive().start();
     }
 
-    private List<String> deliver(List<String> messages) {
-        return messages;
-    }
 
     @Override
     public boolean equals(Object o) {

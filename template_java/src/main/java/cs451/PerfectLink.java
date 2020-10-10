@@ -4,6 +4,8 @@ import java.io.IOException;
 import java.net.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.stream.Collectors;
 
 public class PerfectLink {
     private final int id;
@@ -11,18 +13,23 @@ public class PerfectLink {
     private DatagramSocket dsSend;
     private DatagramSocket dsRec;
     private HashMap<Integer, Integer> portMap;
+    private LinkedBlockingQueue<Packet> messageToSend;
+    private LinkedBlockingQueue<String> messageToDeliver;
     private static final HashSet<String> recMessage = new HashSet<>();
     private static final HashSet<String> sentMessage = new HashSet<>();
-    private static final HashMap<Integer, HashSet<String>> recACKs = new HashMap<>();
-    private static ArrayList<String> deliverMessages = new ArrayList<>();
-    private static ArrayList<String> gotSend = new ArrayList<>();
-    private static ArrayList<String> gotRec = new ArrayList<>();
+    private static final HashMap<Packet, Boolean> recACKs = new HashMap<>();
+//    private static ArrayList<String> deliverMessages = new ArrayList<>();
+//    private static ArrayList<String> gotSend = new ArrayList<>();
+//    private static ArrayList<String> gotRec = new ArrayList<>();
     private static final Object lock = new Object();
 
 
-    public PerfectLink(int id, int myPort, List<Host> hosts) {
+    public PerfectLink(int id, int myPort, List<Host> hosts,
+                       LinkedBlockingQueue<Packet> messageToSend, LinkedBlockingQueue<String> messageToDeliver) {
         this.id = id;
         this.myPort = myPort;
+        this.messageToSend = messageToSend;
+        this.messageToDeliver = messageToDeliver;
         // Set up sending
         try {
             this.dsSend = new DatagramSocket();
@@ -30,6 +37,7 @@ public class PerfectLink {
             System.out.println("Creating socket to send in send error: " + e.toString());
         }
         assert this.dsSend != null;
+
         // Set up receiving
         try {
             this.dsRec = new DatagramSocket(this.myPort);
@@ -45,83 +53,82 @@ public class PerfectLink {
         portMap = new HashMap<>();
         for (Host h: hosts)
             portMap.put(h.getId(), h.getPort());
+
+        receiveAndDeliver();
+        startAckCheck();
+        send();
     }
 
     private class Send extends Thread {
 
-        private final String message;
-        private final InetAddress destIp;
-        private final int destPort;
-        private final int destId;
-
-        public Send(String message, InetAddress destIp, int destPort, int destId) {
-            this.message = message;
-            this.destIp = destIp;
-            this.destPort = destPort;
-            this.destId = destId;
-        }
-
         @Override
         public void run() {
-            //String sendString = String.format("%d %d", id, message);
-            String sendString = message;
-            byte[] sendBuf = sendString.getBytes();
-            boolean ackRec = false;
-            byte[] recBuf = new byte[1024];
-            DatagramPacket dpRec;
-
-            while (!ackRec) {
-                // Check at the beginning of a new cycle to avoid sending extra packets
-                if (recACKs.getOrDefault(destId, new HashSet<>()).contains(sendString)) {
-                    ackRec = true;
-                    continue;
+            while(true) {
+                Packet p = null;
+                try {
+                    p = messageToSend.take();
+                } catch (InterruptedException e) {
+                    System.out.println("Getting packet in PF link error: " + e.toString());
                 }
+                assert p != null;
+                String sendString = p.getMessage();
+                InetAddress destIp = p.getDestIp();
+                int destPort = p.getDestPort();
+                byte[] sendBuf = sendString.getBytes();
+
+                // Check at the beginning of a new cycle to avoid sending extra packets
+                synchronized (lock) {
+                    if (recACKs.getOrDefault(p, false)) {
+                        continue;
+                    }
+                }
+
                 // Send data
+                //System.out.println("Sending " + sendString + " to " + p.getDestId() + " in send");
+                synchronized (lock) {
+                    recACKs.put(p, false);
+                }
                 DatagramPacket dpSend =
                         new DatagramPacket(sendBuf, sendBuf.length, destIp, destPort);
                 sendOnSocket(dpSend);
                 sentMessage.add(sendString);
-                //System.out.println("Sent " + sendString + " in send");
-
-                // Check ack received
-                dpRec = new DatagramPacket(recBuf, recBuf.length);
-                if (!recOnSocket(dpRec)) {
-                    continue;
-                }
-                String sRec = new String(trim(recBuf), StandardCharsets.UTF_8);
-                //System.out.println("Received " + sRec + " in send");
-                if (recACKs.getOrDefault(destId, new HashSet<>()).contains(sendString)) {
-                    ackRec = true;
-                }
-                else if (sRec.equals(String.format("ACK %d:%s", destId, sendString))) {
-                    ackRec = true;
-                    updateACKs(destId, sendString);
-                }
-                else if (sRec.contains("ACK")) {
-                    String[] ackedPack = sRec.split(":");
-                    int pId = Integer.parseInt(ackedPack[0].replace("ACK ", ""));
-                    updateACKs(pId, ackedPack[1]);
-                }
-                else if (!recMessage.contains(sRec)){
-                    synchronized (lock) {
-                        deliverMessages.add(sRec);
-                    }
-                    gotSend.add(sRec);
-                    recMessage.add(sRec);
-                    sendACK(dpRec, sRec);
-                    try {
-                        Thread.sleep(100); // Sleep for a bit instead of sending immediately, the ACK may arrive
-                    } catch (InterruptedException e) {
-                        System.out.println("Sender sleep error: " + e.toString());
-                    }
-                }
-                recBuf = new byte[1024];
             }
         }
     }
 
-    public void send(String message, InetAddress destIp, int destPort, int destId) {
-        new Send(message, destIp, destPort, destId).start();
+    public void send() {
+        new Send().start();
+    }
+
+    private class ACKChecker extends Thread {
+        @Override
+        public void run() {
+            while (true) {
+                LinkedList<Packet> toAck;
+                synchronized (lock) {
+                    toAck =
+                        recACKs.entrySet().stream()
+                        .filter(x -> !x.getValue())
+                        .map(Map.Entry::getKey).collect(Collectors.toCollection(LinkedList::new));
+                }
+                for (Packet p: toAck) {
+                    try {
+                        messageToSend.put(p);
+                    } catch (InterruptedException e) {
+                        System.out.println("Exception trying to put not acked in PF " + e.toString());
+                    }
+                }
+                try {
+                    Thread.sleep(1000); //TODO: see if we can improve performance of busy waiting o change it to wait on queue
+                } catch (InterruptedException e) {
+                    System.out.println("Exception trying to sleep for ACK check in PF " + e.toString());
+                }
+            }
+        }
+    }
+
+    public void startAckCheck() {
+        new ACKChecker().start();
     }
 
     private void sendACK(DatagramPacket dpRec, String sRec) {
@@ -137,15 +144,7 @@ public class PerfectLink {
         sendOnSocket(dpSend);
     }
 
-    private synchronized void updateACKs(int pid, String ackPack) {
-        HashSet<String> acks = recACKs.getOrDefault(pid, new HashSet<>());
-        acks.add(ackPack);
-        recACKs.put(pid, acks);
-    }
-
     private class Receive extends Thread {
-
-        private final List<String> gotPacks = new ArrayList<>();
 
         @Override
         public void run() {
@@ -153,14 +152,6 @@ public class PerfectLink {
             DatagramPacket dpRec;
 
             while (true) {
-                if (deliverMessages.size() > 0) {  // We have messages to deliver
-                    //System.out.println(deliverMessages);
-                    synchronized (lock) {
-                        gotPacks.addAll(deliverMessages);
-                        deliverMessages = new ArrayList<>();
-                    }
-                    break;
-                }
                 dpRec = new DatagramPacket(recBuf, recBuf.length);
                 if (!recOnSocket(dpRec)) {
                     continue;
@@ -168,40 +159,34 @@ public class PerfectLink {
                 String sRec = new String(trim(recBuf), StandardCharsets.UTF_8);
                 if (!sRec.contains("ACK")) {
                     //System.out.println("Received " + sRec + " in receive");
-                    //System.out.println("Sent " + sendString + " in receive");
                     if (!recMessage.contains(sRec)) {
-                        gotRec.add(sRec);
-                        deliverMessages.add(sRec);
                         recMessage.add(sRec);
+                        try {
+                            messageToDeliver.put(sRec);
+                        } catch (InterruptedException e) {
+                            System.out.println("Exception trying to deliver a message in PF " + e.toString());
+                        }
                     }
                     sendACK(dpRec, sRec);
                 }
                 else{
+                    //System.out.println("Received " + sRec + " in receive");
                     String[] ackedPack = sRec.split(":");
-                    int pId = Integer.parseInt(ackedPack[0].replace("ACK ", ""));
-                    updateACKs(pId, ackedPack[1]);
+                    int pid = Integer.parseInt(ackedPack[0].replace("ACK ", ""));
+                    InetAddress address = dpRec.getAddress();
+                    int port = portMap.get(pid);
+                    Packet p = new Packet(ackedPack[1], address, port, pid);
+                    synchronized (lock) {
+                        recACKs.put(p, true);
+                    }
                 }
                 recBuf = new byte[1024];
             }
         }
-
-        public List<String> getGotPacks() {
-            return gotPacks;
-        }
     }
 
-    public List<String> receiveAndDeliver(){
-        Receive rec = new Receive();
-        rec.start();
-        try {
-            //System.out.println("I'm joining in PF receive");
-            rec.join();
-        } catch (InterruptedException e) {
-            System.out.println("Exception when joining to receive " + e.toString());
-        }
-        //System.out.println("I have this packet in PF " + rec.getGotPack());
-        //System.out.println("I'm returning in PF receive");
-        return rec.getGotPacks();
+    public void receiveAndDeliver(){
+        new Receive().start();
     }
 
     private void sendOnSocket(DatagramPacket dpSend) {
@@ -212,7 +197,7 @@ public class PerfectLink {
         }
     }
 
-    private synchronized boolean recOnSocket(DatagramPacket dpRec) {
+    private boolean recOnSocket(DatagramPacket dpRec) {
         try {
             dsRec.receive(dpRec);
         } catch (SocketTimeoutException ignored) {
@@ -224,7 +209,6 @@ public class PerfectLink {
         //System.out.println("Received " + new String(trim(dpRec.getData()), StandardCharsets.UTF_8));
         return true;
     }
-
 
     /**
      * Found on https://stackoverflow.com/a/17004488
@@ -247,16 +231,8 @@ public class PerfectLink {
         return sentMessage;
     }
 
-    public static HashMap<Integer, HashSet<String>> getRecACKs() {
+    public static HashMap<Packet, Boolean> getRecACKs() {
         return recACKs;
-    }
-
-    public static ArrayList<String> getGotRec() {
-        return gotRec;
-    }
-
-    public static ArrayList<String> getGotSend() {
-        return gotSend;
     }
 
     @Override

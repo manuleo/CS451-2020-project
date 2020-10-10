@@ -4,6 +4,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.LinkedBlockingQueue;
 
 public class Main {
     private static Set<String> recPack = new HashSet<>();
@@ -104,35 +105,46 @@ public class Main {
 //            }
 //        }
 
-    private static void testBestEffortBroadcast(Parser parser) {
-        BestEffortBroadcast beb = new BestEffortBroadcast(parser.hosts(), parser.myId());
-        class TestDeliver extends Thread {
-            @Override
-            public void run() {
-                while (true) {
-                    List<String> gotPacks = beb.receiveAndDeliver();
-                    recPack.addAll(gotPacks);
-                }
-            }
-        }
-        new TestDeliver().start();
-        for (int i = 0; i<25; i++)
-            beb.broadcast(String.valueOf(i));
-    }
+//    private static void testBestEffortBroadcast(Parser parser) {
+//        BestEffortBroadcast beb = new BestEffortBroadcast(parser.hosts(), parser.myId());
+//        class TestDeliver extends Thread {
+//            @Override
+//            public void run() {
+//                while (true) {
+//                    List<String> gotPacks = beb.receiveAndDeliver();
+//                    recPack.addAll(gotPacks);
+//                }
+//            }
+//        }
+//        new TestDeliver().start();
+//        for (int i = 0; i<25; i++)
+//            beb.broadcast(String.valueOf(i));
+//    }
 
-    private static void testUniformReliableBroadcast(Parser parser) {
-        UniformReliableBroadcast urb = new UniformReliableBroadcast(parser.hosts(), parser.myId());
+    private static void testUniformReliableBroadcast(Parser parser) throws InterruptedException {
+        LinkedBlockingQueue<String> messageToSend = new LinkedBlockingQueue<>();
+        LinkedBlockingQueue<String> messageDelivered = new LinkedBlockingQueue<>();
+        UniformReliableBroadcast urb = new UniformReliableBroadcast(parser.hosts(), parser.myId(),
+                messageToSend, messageDelivered);
         class TestDeliver extends Thread {
             @Override
             public void run() {
                 while (true) {
-                    List<String> gotPacks = urb.receiveAndDeliver();
-                    recPack.addAll(gotPacks);
+                    String gotPack = null;
+                    try {
+                        gotPack = messageDelivered.take();
+                    } catch (InterruptedException e) {
+                        System.out.println("Getting message in main error: " + e.toString());
+                    }
+                    recPack.add(gotPack);
+                    if (recPack.size()%100==0)
+                        System.out.println(recPack.size());
                 }
             }
         }
         new TestDeliver().start();
-        for (int i = 0; i<1000; i++)
-            urb.broadcast(String.valueOf(i));
+        for (int i = 0; i<1; i++) {
+            messageToSend.add(String.valueOf(i));
+        }
     }
 }
