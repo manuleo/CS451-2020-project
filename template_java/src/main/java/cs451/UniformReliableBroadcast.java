@@ -94,10 +94,10 @@ public class UniformReliableBroadcast {
                 else
                     key = gotSplit[1] + " " + gotSplit[2];
 
-//                    if (gotSplit.length==2)
-//                        System.out.println("Received " + gotPack);
-                //System.out.println("key: " + key);
-                //System.out.println("ACKs: ");
+//                if (gotSplit.length==2)
+//                    System.out.println("Received " + gotPack);
+//                System.out.println("key: " + key);
+//                System.out.println("ACKs: ");
 //                for (Map.Entry<String, Integer> entry : ack.entrySet()) {
 //                    System.out.println(entry.getKey() + "=" + entry.getValue());
 //                }
@@ -133,13 +133,11 @@ public class UniformReliableBroadcast {
                 //System.out.println("Deliverable: " + deliverable);
                 if (deliverable.size()!=0) {
                     String deliver = deliverable.get(0);
+                    delivered.add(deliver);
                     try {
                         messageToDeliverUp.put(deliver);
                     } catch (InterruptedException e) {
                         System.out.println("Delivering message in URB error: " + e.toString());
-                    }
-                    synchronized (lockPending) {
-                        pending.remove(deliver);
                     }
                 }
             }
@@ -150,4 +148,26 @@ public class UniformReliableBroadcast {
         new Receive().start();
     }
 
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        UniformReliableBroadcast that = (UniformReliableBroadcast) o;
+        return id == that.id &&
+                minCorrect == that.minCorrect &&
+                beb.equals(that.beb) &&
+                delivered.equals(that.delivered) &&
+                pending.equals(that.pending) &&
+                ack.equals(that.ack) &&
+                messageToSendDown.equals(that.messageToSendDown) &&
+                messageToSendUp.equals(that.messageToSendUp) &&
+                messageDeliveredDown.equals(that.messageDeliveredDown) &&
+                messageToDeliverUp.equals(that.messageToDeliverUp);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(beb, delivered, pending, ack, id, minCorrect,
+                messageToSendDown, messageToSendUp, messageDeliveredDown, messageToDeliverUp);
+    }
 }

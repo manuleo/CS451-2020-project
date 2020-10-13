@@ -1,13 +1,17 @@
 package cs451;
 
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import javax.sound.midi.Receiver;
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.util.*;
 import java.util.concurrent.LinkedBlockingQueue;
 
 public class Main {
-    private static Set<String> recPack = new HashSet<>();
+    private static LinkedList<String> recPack = new LinkedList<>();
+    private static LinkedList<String> out = new LinkedList<>();
+    private static String outName;
 
     private static void handleSignal() {
         //immediately stop network packet processing
@@ -15,8 +19,15 @@ public class Main {
 
         //write/flush output file if necessary
         System.out.println("Writing output.");
-//        System.out.println(recPack);
-        System.out.println(recPack.size());
+        //System.out.println(recPack);
+        System.out.println("Total message delivered: " + recPack.size());
+        try (FileWriter fw = new FileWriter(outName)) {
+            for (String s: out) {
+                fw.write(s + "\n");
+            }
+        } catch (IOException e) {
+            System.out.println("Impossible to write " + e.toString());
+        }
 //        Set<String> testPack = new HashSet<>();
 //        for(int h = 1; h<4; h++) {
 //            for (int m = 0; m < 50; m++) {
@@ -33,6 +44,7 @@ public class Main {
 //        System.out.println(PerfectLink.getRecMessage());
 //        System.out.println(PerfectLink.getGotRec());
 //        System.out.println(PerfectLink.getGotSend());
+
     }
 
     private static void initSignalHandlers() {
@@ -64,19 +76,19 @@ public class Main {
         System.out.println("Barrier: " + parser.barrierIp() + ":" + parser.barrierPort());
         System.out.println("Signal: " + parser.signalIp() + ":" + parser.signalPort());
         System.out.println("Output: " + parser.output());
+        outName = parser.output();
+        int m = 0;
         // if config is defined; always check before parser.config()
         if (parser.hasConfig()) {
             System.out.println("Config: " + parser.config());
+            m = parseConfig(parser.config());
         }
-
-
         Coordinator coordinator = new Coordinator(parser.myId(), parser.barrierIp(), parser.barrierPort(), parser.signalIp(), parser.signalPort());
-
         System.out.println("Waiting for all processes for finish initialization");
         coordinator.waitOnBarrier();
 
         System.out.println("Broadcasting messages...");
-        testUniformReliableBroadcast(parser);
+        FIFOBroadcast(parser, m);
 
         System.out.println("Signaling end of broadcasting messages");
         coordinator.finishedBroadcasting();
@@ -85,6 +97,26 @@ public class Main {
             // Sleep for 1 hour
             Thread.sleep(60 * 60 * 1000);
         }
+    }
+
+    private static int parseConfig(String config) {
+        Scanner input = null;
+        try {
+            input = new Scanner(new File(config));
+        } catch (FileNotFoundException e) {
+            System.out.println("File config not found exception! " + e.toString());
+        }
+        int i = 0;
+        int m  = 0;
+        while(input.hasNextLine()) {
+            String data = input.nextLine();
+            if (i==0) {
+                m = Integer.parseInt(data);
+            }
+            i+=1;
+        }
+        input.close();
+        return m;
     }
 
 //    private static void testPerfectLink(Parser parser) throws UnknownHostException {
@@ -121,12 +153,66 @@ public class Main {
 //            beb.broadcast(String.valueOf(i));
 //    }
 
-    private static void testUniformReliableBroadcast(Parser parser) throws InterruptedException {
+//    private static void testUniformReliableBroadcast(Parser parser) throws InterruptedException {
+//        LinkedBlockingQueue<String> messageToSend = new LinkedBlockingQueue<>();
+//        LinkedBlockingQueue<String> messageDelivered = new LinkedBlockingQueue<>();
+//        UniformReliableBroadcast urb = new UniformReliableBroadcast(parser.hosts(), parser.myId(),
+//                messageToSend, messageDelivered);
+//        class TestDeliver extends Thread {
+//            @Override
+//            public void run() {
+//                while (true) {
+//                    String gotPack = null;
+//                    try {
+//                        gotPack = messageDelivered.take();
+//                    } catch (InterruptedException e) {
+//                        System.out.println("Getting message in main error: " + e.toString());
+//                    }
+//                    recPack.add(gotPack);
+//                    if (recPack.size()%100==0)
+//                        System.out.println(recPack.size());
+//                }
+//            }
+//        }
+//        new TestDeliver().start();
+//        for (int i = 0; i<5; i++) {
+//            messageToSend.put(String.valueOf(i));
+//        }
+//    }
+
+//    private static void testFIFO(Parser parser) throws InterruptedException {
+//        LinkedBlockingQueue<String> messageToSend = new LinkedBlockingQueue<>();
+//        LinkedBlockingQueue<String> messageDelivered = new LinkedBlockingQueue<>();
+//        FIFO fifo = new FIFO(parser.hosts(), parser.myId(), messageToSend, messageDelivered);
+//        class TestDeliver extends Thread {
+//            @Override
+//            public void run() {
+//                while (true) {
+//                    String gotPack = null;
+//                    try {
+//                        gotPack = messageDelivered.take();
+//                    } catch (InterruptedException e) {
+//                        System.out.println("Getting message in main error: " + e.toString());
+//                    }
+//                    out.add("d " + gotPack);
+//                    recPack.add(gotPack);
+//                    if (recPack.size()%100==0)
+//                        System.out.println(recPack.size());
+//                }
+//            }
+//        }
+//        new TestDeliver().start();
+//        for (int i = 1; i<=100; i++) {
+//            messageToSend.put(String.valueOf(i));
+//            out.add("b " + i);
+//        }
+//    }
+
+    private static void FIFOBroadcast(Parser parser, int m) {
         LinkedBlockingQueue<String> messageToSend = new LinkedBlockingQueue<>();
         LinkedBlockingQueue<String> messageDelivered = new LinkedBlockingQueue<>();
-        UniformReliableBroadcast urb = new UniformReliableBroadcast(parser.hosts(), parser.myId(),
-                messageToSend, messageDelivered);
-        class TestDeliver extends Thread {
+        FIFO fifo = new FIFO(parser.hosts(), parser.myId(), messageToSend, messageDelivered);
+        class Deliver extends Thread {
             @Override
             public void run() {
                 while (true) {
@@ -136,15 +222,43 @@ public class Main {
                     } catch (InterruptedException e) {
                         System.out.println("Getting message in main error: " + e.toString());
                     }
+                    out.add("d " + gotPack);
                     recPack.add(gotPack);
                     if (recPack.size()%100==0)
-                        System.out.println(recPack.size());
+                        System.out.println("Delivered " + recPack.size() + " packets");
+                    if (recPack.size() == parser.hosts().size() * m) {
+                        return;
+                    }
                 }
             }
         }
-        new TestDeliver().start();
-        for (int i = 0; i<1; i++) {
-            messageToSend.add(String.valueOf(i));
+        class Send extends Thread {
+            final int m;
+            public Send(int m) {
+                this.m = m;
+            }
+            @Override
+            public void run() {
+                for (int i = 1; i<=m; i++) {
+                    try {
+                        messageToSend.put(String.valueOf(i));
+                    } catch (InterruptedException e) {
+                        System.out.println("Sending message in main error: " + e.toString());
+                    }
+                    out.add("b " + i);
+                }
+            }
+        }
+        Deliver deliver = new Deliver();
+        Send send = new Send(m);
+        deliver.start();
+        send.start();
+        try {
+            send.join();
+            deliver.join();
+        } catch (InterruptedException e) {
+            System.out.println("Error while waiting in main: " + e.toString());
         }
     }
+
 }

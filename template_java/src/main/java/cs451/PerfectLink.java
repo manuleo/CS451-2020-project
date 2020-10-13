@@ -242,12 +242,15 @@ public class PerfectLink {
         PerfectLink that = (PerfectLink) o;
         return id == that.id &&
                 myPort == that.myPort &&
-                Objects.equals(dsSend, that.dsSend) &&
-                Objects.equals(dsRec, that.dsRec);
+                dsSend.equals(that.dsSend) &&
+                dsRec.equals(that.dsRec) &&
+                portMap.equals(that.portMap) &&
+                messageToSend.equals(that.messageToSend) &&
+                messageToDeliver.equals(that.messageToDeliver);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(id, myPort, dsSend, dsRec);
+        return Objects.hash(id, myPort, dsSend, dsRec, portMap, messageToSend, messageToDeliver);
     }
 }

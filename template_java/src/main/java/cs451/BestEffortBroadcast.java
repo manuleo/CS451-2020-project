@@ -86,18 +86,24 @@ public class BestEffortBroadcast {
         new Receive().start();
     }
 
-
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         BestEffortBroadcast that = (BestEffortBroadcast) o;
         return id == that.id &&
-                pf.equals(that.pf);
+                hosts.equals(that.hosts) &&
+                pf.equals(that.pf) &&
+                myMessage.equals(that.myMessage) &&
+                messageToSendDown.equals(that.messageToSendDown) &&
+                messageToSendUp.equals(that.messageToSendUp) &&
+                messageDeliveredDown.equals(that.messageDeliveredDown) &&
+                messageToDeliverUp.equals(that.messageToDeliverUp);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(id, pf);
+        return Objects.hash(hosts, id, pf, myMessage,
+                messageToSendDown, messageToSendUp, messageDeliveredDown, messageToDeliverUp);
     }
 }
