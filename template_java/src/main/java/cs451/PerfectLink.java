@@ -61,6 +61,8 @@ public class PerfectLink {
 
     private class Send extends Thread {
 
+        int numSend = 0;
+
         @Override
         public void run() {
             while(true) {
@@ -84,7 +86,7 @@ public class PerfectLink {
                 }
 
                 // Send data
-                //System.out.println("Sending " + sendString + " to " + p.getDestId() + " in send");
+                System.out.println("Sending " + sendString + " to " + p.getDestId() + " in send");
                 synchronized (lock) {
                     recACKs.put(p, false);
                 }
@@ -92,12 +94,23 @@ public class PerfectLink {
                         new DatagramPacket(sendBuf, sendBuf.length, destIp, destPort);
                 sendOnSocket(dpSend);
                 sentMessage.add(sendString);
+//                numSend+=1;
+//                if (numSend >= 800) {
+//                    try {
+//                        Thread.sleep(100);
+//                    } catch (InterruptedException e) {
+//                        e.printStackTrace();
+//                    }
+//                }
+                //TODO: try to add some sort of "flow control" to avoid this thread to overcome the others
             }
         }
     }
 
     public void send() {
-        new Send().start();
+        Send s = new Send();
+        s.setPriority(2);
+        s.start();
     }
 
     private class ACKChecker extends Thread {
@@ -158,7 +171,7 @@ public class PerfectLink {
                 }
                 String sRec = new String(trim(recBuf), StandardCharsets.UTF_8);
                 if (!sRec.contains("ACK")) {
-                    //System.out.println("Received " + sRec + " in receive");
+                    System.out.println("Received " + sRec + " in receive");
                     if (!recMessage.contains(sRec)) {
                         recMessage.add(sRec);
                         try {
@@ -170,7 +183,7 @@ public class PerfectLink {
                     sendACK(dpRec, sRec);
                 }
                 else{
-                    //System.out.println("Received " + sRec + " in receive");
+                    System.out.println("Received " + sRec + " in receive");
                     String[] ackedPack = sRec.split(":");
                     int pid = Integer.parseInt(ackedPack[0].replace("ACK ", ""));
                     InetAddress address = dpRec.getAddress();
@@ -186,7 +199,9 @@ public class PerfectLink {
     }
 
     public void receiveAndDeliver(){
-        new Receive().start();
+        Receive r = new Receive();
+        r.setPriority(10);
+        r.start();
     }
 
     private void sendOnSocket(DatagramPacket dpSend) {

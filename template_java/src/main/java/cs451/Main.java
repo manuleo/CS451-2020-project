@@ -7,6 +7,7 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 
 public class Main {
     private static LinkedList<String> recPack = new LinkedList<>();
@@ -216,12 +217,25 @@ public class Main {
             @Override
             public void run() {
                 while (true) {
+                    int lenHost = parser.hosts().size();
+                    int minCorrect = lenHost/2 + 1;
                     String gotPack = null;
                     try {
+                        //gotPack = messageDelivered.poll(5, TimeUnit.SECONDS);
                         gotPack = messageDelivered.take();
+                        System.out.println("Got: " + gotPack);
                     } catch (InterruptedException e) {
                         System.out.println("Getting message in main error: " + e.toString());
                     }
+                    if (recPack.size() >= minCorrect*m) {
+                        return;
+                    }
+//                    if (gotPack == null && recPack.size() >= minCorrect*m) {
+//                        return;
+//                    }
+//                    else if (gotPack == null){
+//                        continue;
+//                    }
                     out.add("d " + gotPack);
                     recPack.add(gotPack);
                     if (recPack.size()%100==0)
@@ -251,6 +265,7 @@ public class Main {
         }
         Deliver deliver = new Deliver();
         Send send = new Send(m);
+        deliver.setPriority(10);
         deliver.start();
         send.start();
         try {

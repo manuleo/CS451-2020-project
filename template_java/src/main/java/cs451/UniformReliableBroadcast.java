@@ -28,12 +28,7 @@ public class UniformReliableBroadcast {
         this.beb = new BestEffortBroadcast(hosts, id, messageToSendDown, messageDeliveredDown);
         this.id = id;
         int lenHost = hosts.size();
-        if (lenHost==2) // Corner case: with only 2 hosts no one can crash (or "minority only can crash" not respected)
-            minCorrect = 2;
-        else if (lenHost%2!=0)
-            minCorrect = lenHost - lenHost/2;
-        else
-            minCorrect = lenHost - lenHost/2 - 1;
+        minCorrect = lenHost/2 + 1;
         receiveAndDeliver();
         broadcast();
     }
@@ -103,7 +98,7 @@ public class UniformReliableBroadcast {
 //                }
                 synchronized (lockAck) {
                     if (!ack.containsKey(key))
-                        ack.put(key, 1);
+                        ack.put(key, 2);
                     else {
                         Integer oldAck = ack.get(key);
                         ack.put(key, oldAck + 1);
@@ -130,7 +125,7 @@ public class UniformReliableBroadcast {
                             .filter(p -> !delivered.contains(p))
                             .collect(Collectors.toList());
                 }
-                //System.out.println("Deliverable: " + deliverable);
+                System.out.println("Deliverable: " + deliverable);
                 if (deliverable.size()!=0) {
                     String deliver = deliverable.get(0);
                     delivered.add(deliver);
@@ -145,7 +140,9 @@ public class UniformReliableBroadcast {
     }
 
     public void receiveAndDeliver() {
-        new Receive().start();
+        Receive rec = new Receive();
+        rec.setPriority(10);
+        rec.start();
     }
 
     @Override
