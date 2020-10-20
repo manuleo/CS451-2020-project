@@ -5,6 +5,7 @@ import java.net.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 public class PerfectLink {
@@ -15,9 +16,10 @@ public class PerfectLink {
     private HashMap<Integer, Integer> portMap;
     private LinkedBlockingQueue<Packet> messageToSend;
     private LinkedBlockingQueue<String> messageToDeliver;
+    private LinkedBlockingQueue<Packet> recACKs = new LinkedBlockingQueue<>();
     private static final HashSet<String> recMessage = new HashSet<>();
     private static final HashSet<String> sentMessage = new HashSet<>();
-    private static final HashMap<Packet, Boolean> recACKs = new HashMap<>();
+    private static final HashMap<Packet, Long> toRecACK = new HashMap<>();
 //    private static ArrayList<String> deliverMessages = new ArrayList<>();
 //    private static ArrayList<String> gotSend = new ArrayList<>();
 //    private static ArrayList<String> gotRec = new ArrayList<>();
@@ -41,7 +43,6 @@ public class PerfectLink {
         // Set up receiving
         try {
             this.dsRec = new DatagramSocket(this.myPort);
-            this.dsRec.setSoTimeout(100);
         } catch (SocketException e) {
             System.out.println("Creating socket to receive ACK in send error: " + e.toString());
         }
@@ -61,8 +62,6 @@ public class PerfectLink {
 
     private class Send extends Thread {
 
-        int numSend = 0;
-
         @Override
         public void run() {
             while(true) {
@@ -79,29 +78,21 @@ public class PerfectLink {
                 byte[] sendBuf = sendString.getBytes();
 
                 // Check at the beginning of a new cycle to avoid sending extra packets
-                synchronized (lock) {
-                    if (recACKs.getOrDefault(p, false)) {
-                        continue;
-                    }
-                }
+//                synchronized (lock) {
+//                    if (recACKs.getOrDefault(p, false)) {
+//                        continue;
+//                    }
+//                }
 
                 // Send data
-                System.out.println("Sending " + sendString + " to " + p.getDestId() + " in send");
+                //System.out.println("Sending " + sendString + " to " + p.getDestId() + " in send");
                 synchronized (lock) {
-                    recACKs.put(p, false);
+                    toRecACK.put(p, System.nanoTime());
                 }
                 DatagramPacket dpSend =
                         new DatagramPacket(sendBuf, sendBuf.length, destIp, destPort);
                 sendOnSocket(dpSend);
                 sentMessage.add(sendString);
-//                numSend+=1;
-//                if (numSend >= 800) {
-//                    try {
-//                        Thread.sleep(100);
-//                    } catch (InterruptedException e) {
-//                        e.printStackTrace();
-//                    }
-//                }
                 //TODO: try to add some sort of "flow control" to avoid this thread to overcome the others
             }
         }
@@ -109,19 +100,30 @@ public class PerfectLink {
 
     public void send() {
         Send s = new Send();
-        s.setPriority(2);
         s.start();
     }
 
     private class ACKChecker extends Thread {
+        Long timeout = 10L*((long) Math.pow(10, 9));
         @Override
         public void run() {
             while (true) {
+                Packet recAck = null;
+                try {
+                    recAck = recACKs.poll(timeout, TimeUnit.NANOSECONDS);
+                } catch (InterruptedException ignored) {
+                }
+                if (recACKs!=null) {
+                    synchronized (lock) {
+                        toRecACK.remove(recAck);
+                    }
+                }
                 LinkedList<Packet> toAck;
+                Long now = System.nanoTime();
                 synchronized (lock) {
                     toAck =
-                        recACKs.entrySet().stream()
-                        .filter(x -> !x.getValue())
+                        toRecACK.entrySet().stream()
+                        .filter(x -> now - x.getValue() >= timeout)
                         .map(Map.Entry::getKey).collect(Collectors.toCollection(LinkedList::new));
                 }
                 for (Packet p: toAck) {
@@ -130,11 +132,6 @@ public class PerfectLink {
                     } catch (InterruptedException e) {
                         System.out.println("Exception trying to put not acked in PF " + e.toString());
                     }
-                }
-                try {
-                    Thread.sleep(1000); //TODO: see if we can improve performance of busy waiting o change it to wait on queue
-                } catch (InterruptedException e) {
-                    System.out.println("Exception trying to sleep for ACK check in PF " + e.toString());
                 }
             }
         }
@@ -166,12 +163,10 @@ public class PerfectLink {
 
             while (true) {
                 dpRec = new DatagramPacket(recBuf, recBuf.length);
-                if (!recOnSocket(dpRec)) {
-                    continue;
-                }
+                recOnSocket(dpRec);
                 String sRec = new String(trim(recBuf), StandardCharsets.UTF_8);
                 if (!sRec.contains("ACK")) {
-                    System.out.println("Received " + sRec + " in receive");
+                    //System.out.println("Received " + sRec + " in receive");
                     if (!recMessage.contains(sRec)) {
                         recMessage.add(sRec);
                         try {
@@ -183,14 +178,16 @@ public class PerfectLink {
                     sendACK(dpRec, sRec);
                 }
                 else{
-                    System.out.println("Received " + sRec + " in receive");
+                    //System.out.println("Received " + sRec + " in receive");
                     String[] ackedPack = sRec.split(":");
                     int pid = Integer.parseInt(ackedPack[0].replace("ACK ", ""));
                     InetAddress address = dpRec.getAddress();
                     int port = portMap.get(pid);
                     Packet p = new Packet(ackedPack[1], address, port, pid);
-                    synchronized (lock) {
-                        recACKs.put(p, true);
+                    try {
+                        recACKs.put(p);
+                    } catch (InterruptedException e) {
+                        System.out.println("Exception trying to put an ACK in the queue " + e.toString());
                     }
                 }
                 recBuf = new byte[1024];
@@ -200,7 +197,6 @@ public class PerfectLink {
 
     public void receiveAndDeliver(){
         Receive r = new Receive();
-        r.setPriority(10);
         r.start();
     }
 
@@ -212,17 +208,16 @@ public class PerfectLink {
         }
     }
 
-    private boolean recOnSocket(DatagramPacket dpRec) {
+    private void recOnSocket(DatagramPacket dpRec) {
         try {
             dsRec.receive(dpRec);
-        } catch (SocketTimeoutException ignored) {
-            //System.out.println("Timeout");
-            return false;
+//        } catch (SocketTimeoutException ignored) {
+//            //System.out.println("Timeout");
+//            return false;
         } catch (IOException e) {
             System.out.println("Receiving error: " + e.toString());
         }
         //System.out.println("Received " + new String(trim(dpRec.getData()), StandardCharsets.UTF_8));
-        return true;
     }
 
     /**
@@ -246,8 +241,8 @@ public class PerfectLink {
         return sentMessage;
     }
 
-    public static HashMap<Packet, Boolean> getRecACKs() {
-        return recACKs;
+    public static HashMap<Packet, Long> getToRecACK() {
+        return toRecACK;
     }
 
     @Override

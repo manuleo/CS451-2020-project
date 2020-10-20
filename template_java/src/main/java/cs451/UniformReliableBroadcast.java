@@ -125,7 +125,7 @@ public class UniformReliableBroadcast {
                             .filter(p -> !delivered.contains(p))
                             .collect(Collectors.toList());
                 }
-                System.out.println("Deliverable: " + deliverable);
+                //System.out.println("Deliverable: " + deliverable);
                 if (deliverable.size()!=0) {
                     String deliver = deliverable.get(0);
                     delivered.add(deliver);
@@ -141,7 +141,6 @@ public class UniformReliableBroadcast {
 
     public void receiveAndDeliver() {
         Receive rec = new Receive();
-        rec.setPriority(10);
         rec.start();
     }
 

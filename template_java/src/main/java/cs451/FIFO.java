@@ -69,7 +69,7 @@ public class FIFO {
                 } catch (InterruptedException e) {
                     System.out.println("Getting delivered packet in FIFO: " + e.toString());
                 }
-                //System.out.println(gotPack);
+                //System.out.println("FIFO got: " + gotPack);
                 String[] gotSplit = gotPack.split(" ");
                 int pid = Integer.parseInt(gotSplit[0]);
                 HashSet<String> messages = pending.getOrDefault(pid, new HashSet<>());
@@ -85,6 +85,7 @@ public class FIFO {
                     if(toDeliver.equals("NOMESS"))
                         break;
                     else {
+                        //System.out.println("FIFO deliverable: " + toDeliver);
                         seqNums[pid-1]+=1;
                         newMess.remove(toDeliver);
                         pending.put(pid, newMess);

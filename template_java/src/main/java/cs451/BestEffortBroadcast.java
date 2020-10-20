@@ -25,8 +25,9 @@ public class BestEffortBroadcast {
         this.messageToDeliverUp = messageToDeliverUp;
         this.messageDeliveredDown = new LinkedBlockingQueue<>();
         this.messageToSendDown = new LinkedBlockingQueue<>();
-        this.pf = new PerfectLink(id, hosts.get(id-1).getPort(), hosts, messageToSendDown, messageDeliveredDown);
-        receiveAndDeliver();
+        this.pf = new PerfectLink(id, hosts.get(id-1).getPort(), hosts, messageToSendDown, messageToDeliverUp);
+        // No need to use an extra queue to deliver in BEB, will only decrease performances
+        //receiveAndDeliver();
         broadcast();
     }
 

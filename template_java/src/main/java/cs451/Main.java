@@ -10,9 +10,14 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
 public class Main {
+    private static LinkedBlockingQueue<String> messageToSend = new LinkedBlockingQueue<>();
+    private static LinkedBlockingQueue<String> messageDelivered = new LinkedBlockingQueue<>();
+    private static HashSet<String> broacasted = new HashSet<>();
+    private static HashSet<String> myMess = new HashSet<>();
     private static LinkedList<String> recPack = new LinkedList<>();
     private static LinkedList<String> out = new LinkedList<>();
     private static String outName;
+    private static final Object lockOut = new Object();
 
     private static void handleSignal() {
         //immediately stop network packet processing
@@ -23,8 +28,10 @@ public class Main {
         //System.out.println(recPack);
         System.out.println("Total message delivered: " + recPack.size());
         try (FileWriter fw = new FileWriter(outName)) {
-            for (String s: out) {
-                fw.write(s + "\n");
+            synchronized (lockOut) {
+                for (String s: out) {
+                    fw.write(s + "\n");
+                }
             }
         } catch (IOException e) {
             System.out.println("Impossible to write " + e.toString());
@@ -89,10 +96,10 @@ public class Main {
         coordinator.waitOnBarrier();
 
         System.out.println("Broadcasting messages...");
-        FIFOBroadcast(parser, m);
+        FIFOBroadcast(parser, coordinator, m);
 
-        System.out.println("Signaling end of broadcasting messages");
-        coordinator.finishedBroadcasting();
+//        System.out.println("Signaling end of broadcasting messages");
+//        coordinator.finishedBroadcasting();
 
         while (true) {
             // Sleep for 1 hour
@@ -209,38 +216,38 @@ public class Main {
 //        }
 //    }
 
-    private static void FIFOBroadcast(Parser parser, int m) {
-        LinkedBlockingQueue<String> messageToSend = new LinkedBlockingQueue<>();
-        LinkedBlockingQueue<String> messageDelivered = new LinkedBlockingQueue<>();
+    private static void FIFOBroadcast(Parser parser, Coordinator coordinator, int m) {
         FIFO fifo = new FIFO(parser.hosts(), parser.myId(), messageToSend, messageDelivered);
         class Deliver extends Thread {
+            Boolean recMine = false;
             @Override
             public void run() {
                 while (true) {
-                    int lenHost = parser.hosts().size();
-                    int minCorrect = lenHost/2 + 1;
                     String gotPack = null;
                     try {
-                        //gotPack = messageDelivered.poll(5, TimeUnit.SECONDS);
                         gotPack = messageDelivered.take();
-                        System.out.println("Got: " + gotPack);
+                        //System.out.println("Got: " + gotPack);
                     } catch (InterruptedException e) {
                         System.out.println("Getting message in main error: " + e.toString());
                     }
-                    if (recPack.size() >= minCorrect*m) {
-                        return;
+                    synchronized (lockOut) {
+                        out.add("d " + gotPack);
                     }
-//                    if (gotPack == null && recPack.size() >= minCorrect*m) {
-//                        return;
-//                    }
-//                    else if (gotPack == null){
-//                        continue;
-//                    }
-                    out.add("d " + gotPack);
                     recPack.add(gotPack);
+                    if (!recMine) {
+                        if(Integer.parseInt(gotPack.split(" ")[0]) == parser.myId()) {
+                            myMess.add(gotPack);
+                            if (myMess.equals(broacasted)) {
+                                recMine = true;
+                                System.out.println("Signaling end of broadcasting messages");
+                                coordinator.finishedBroadcasting();
+                            }
+                        }
+                    }
                     if (recPack.size()%100==0)
                         System.out.println("Delivered " + recPack.size() + " packets");
                     if (recPack.size() == parser.hosts().size() * m) {
+                        System.out.println("Received everything from everyone.");
                         return;
                     }
                 }
@@ -259,13 +266,15 @@ public class Main {
                     } catch (InterruptedException e) {
                         System.out.println("Sending message in main error: " + e.toString());
                     }
-                    out.add("b " + i);
+                    synchronized (lockOut) {
+                        out.add("b " + i);
+                    }
+                    broacasted.add(parser.myId() + " " + i);
                 }
             }
         }
         Deliver deliver = new Deliver();
         Send send = new Send(m);
-        deliver.setPriority(10);
         deliver.start();
         send.start();
         try {
