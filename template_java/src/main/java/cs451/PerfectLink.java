@@ -18,6 +18,8 @@ public class PerfectLink {
     private LinkedBlockingQueue<Packet> messageToSend;
     private LinkedBlockingQueue<String> messageToDeliver;
     private LinkedBlockingQueue<Packet> recACKs = new LinkedBlockingQueue<>();
+    private int numOutstanding;
+    private int outLimit = Main.m;
     private static final HashSet<String> recMessage = new HashSet<>();
     private static final HashSet<String> sentMessage = new HashSet<>();
     private static final HashMap<Packet, Long> toRecACK = new HashMap<>();
@@ -48,6 +50,7 @@ public class PerfectLink {
         portMap = new HashMap<>();
         for (Host h: hosts)
             portMap.put(h.getId(), h.getPort());
+        this.numOutstanding = 0;
         receiveAndDeliver();
         startAckCheck();
         send();
@@ -75,6 +78,20 @@ public class PerfectLink {
                 }
                 messageToSend.drainTo(pToSend);
                 for (Packet p: pToSend) {
+                    int tries = 0;
+                    while (numOutstanding >= outLimit) {
+                        tries+=1;
+                        if (tries==5) {
+                            outLimit*=2;
+                           // System.out.println(outLimit);
+                        }
+                        //System.out.println("Busy waiting");
+                        try {
+                            Thread.sleep(500);
+                        } catch (InterruptedException e) {
+                            System.out.println("Sleeping for outstanding in PF link error: " + e.toString());
+                        }
+                    }
                     String sendString = p.getMessage();
                     InetAddress destIp = p.getDestIp();
                     int destPort = p.getDestPort();
@@ -83,6 +100,8 @@ public class PerfectLink {
                     //System.out.println("Sending " + sendString + " to " + p.getDestId() + " in send");
                     synchronized (lock) {
                         toRecACK.put(p, System.nanoTime());
+                        numOutstanding++;
+                        //System.out.println(numOutstanding);
                     }
                     DatagramPacket dpSend =
                             new DatagramPacket(sendBuf, sendBuf.length, destIp, destPort);
@@ -122,6 +141,7 @@ public class PerfectLink {
                     recACKs.drainTo(newAcks);
                     synchronized (lock) {
                         //toRecACK.remove(recAck);
+                        numOutstanding-=newAcks.size();
                         toRecACK.keySet().removeAll(newAcks);
                     }
                 }
