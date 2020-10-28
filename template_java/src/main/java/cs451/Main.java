@@ -230,17 +230,33 @@ public class Main {
                     } catch (InterruptedException e) {
                         System.out.println("Getting message in main error: " + e.toString());
                     }
+                    List<String> newGot = new LinkedList<>();
+                    newGot.add(gotPack);
+//                    synchronized (lockOut) {
+//                        out.add("d " + gotPack);
+//                    }
+//                    recPack.add(gotPack);
+//                    try {
+//                        Thread.sleep(200);
+//                    } catch (InterruptedException e) {
+//                        System.out.println("Sleeping in main error: " + e.toString());
+//                    }
+                    messageDelivered.drainTo(newGot);
+                    //System.out.println("Received in main: " + newGssot);
                     synchronized (lockOut) {
-                        out.add("d " + gotPack);
+                        for (String got: newGot)
+                            out.add("d " + got);
                     }
-                    recPack.add(gotPack);
+                    recPack.addAll(newGot);
                     if (!recMine) {
-                        if(Integer.parseInt(gotPack.split(" ")[0]) == parser.myId()) {
-                            myMess.add(gotPack);
-                            if (myMess.equals(broacasted)) {
-                                recMine = true;
-                                System.out.println("Signaling end of broadcasting messages");
-                                coordinator.finishedBroadcasting();
+                        for (String got: newGot) {
+                            if(Integer.parseInt(got.split(" ")[0]) == parser.myId()) {
+                                myMess.add(got);
+                                if (myMess.equals(broacasted)) {
+                                    recMine = true;
+                                    System.out.println("Signaling end of broadcasting messages");
+                                    coordinator.finishedBroadcasting();
+                                }
                             }
                         }
                     }

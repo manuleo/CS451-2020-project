@@ -3,9 +3,11 @@ package cs451;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.HashSet;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.stream.Collectors;
 
 public class BestEffortBroadcast {
     private List<Host> hosts;
@@ -42,17 +44,30 @@ public class BestEffortBroadcast {
                 } catch (InterruptedException e) {
                     System.out.println("Getting message in BEB error: " + e.toString());
                 }
+                List<String> messages = new LinkedList<>();
+                messages.add(message);
+                try {
+                    Thread.sleep(200);
+                } catch (InterruptedException e) {
+                    System.out.println("Sleeping in BEB send error: " + e.toString());
+                }
+                messageToSendUp.drainTo(messages);
                 for (Host h: hosts) {
                     if (id == h.getId()) {
-                        myMessage.add(message); //TODO: check on delivering to me
+                        myMessage.addAll(messages); //TODO: check on delivering to me
                         continue;
                     }
-                    try {
-                        Packet p = new Packet(message, InetAddress.getByName(h.getIp()), h.getPort(), h.getId());
-                        messageToSendDown.put(p);
-                    } catch (UnknownHostException | InterruptedException e) {
-                        System.out.println("Error sending down in BEB " + e.toString());
-                    }
+                    List<Packet> packets = messages.stream().map(m ->
+                    {
+                        try {
+                            return new Packet(m,InetAddress.getByName(h.getIp()), h.getPort(), h.getId());
+                        } catch (UnknownHostException e) {
+                            return null;
+                        }
+                    }).collect(Collectors.toList());
+                    messageToSendDown.addAll(packets);
+                    //Packet p = new Packet(message, InetAddress.getByName(h.getIp()), h.getPort(), h.getId());
+                    //messageToSendDown.put(p);
                 }
             }
         }

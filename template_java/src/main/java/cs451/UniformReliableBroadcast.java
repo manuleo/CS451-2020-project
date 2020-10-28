@@ -1,18 +1,21 @@
 package cs451;
 
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.util.*;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.stream.Collectors;
 
 public class UniformReliableBroadcast {
 
-    private final BestEffortBroadcast beb;
+    private final PerfectLink pf;
     HashSet<String> delivered = new HashSet<>();
     HashSet<String> pending = new HashSet<>();
     HashMap<String, Integer> ack = new HashMap<>();
+    private final List<Host> hosts;
     private final int id;
     private final int minCorrect;
-    private LinkedBlockingQueue<String> messageToSendDown;
+    private LinkedBlockingQueue<Packet> messageToSendDown;
     private LinkedBlockingQueue<String> messageToSendUp;
     private LinkedBlockingQueue<String> messageDeliveredDown;
     private LinkedBlockingQueue<String> messageToDeliverUp;
@@ -25,12 +28,14 @@ public class UniformReliableBroadcast {
         this.messageToDeliverUp = messageToDeliverUp;
         this.messageDeliveredDown = new LinkedBlockingQueue<>();
         this.messageToSendDown = new LinkedBlockingQueue<>();
-        this.beb = new BestEffortBroadcast(hosts, id, messageToSendDown, messageDeliveredDown);
+        //this.beb = new BestEffortBroadcast(hosts, id, messageToSendDown, messageDeliveredDown);
+        this.pf = new PerfectLink(id, hosts.get(id-1).getPort(), hosts, messageToSendDown, messageDeliveredDown);
         this.id = id;
         int lenHost = hosts.size();
         minCorrect = lenHost/2 + 1;
         receiveAndDeliver();
         broadcast();
+        this.hosts = hosts;
     }
 
 
@@ -45,18 +50,44 @@ public class UniformReliableBroadcast {
                 } catch (InterruptedException e) {
                     System.out.println("Getting message in URB error: " + e.toString());
                 }
-                String sentMessage = String.format("%d %s", id, message);
+                //String sentMessage = String.format("%d %s", id, message);
+                List<String> sentMessages = new LinkedList<>();
+                sentMessages.add(message);
+                try {
+                    Thread.sleep(200);
+                } catch (InterruptedException e) {
+                    System.out.println("Sleeping in URB error: " + e.toString());
+                }
+                messageToSendUp.drainTo(sentMessages);
+                sentMessages = sentMessages.stream().map(m -> String.format("%d %s", id, m)).collect(Collectors.toList());
                 //System.out.println("Sending " + sentMessage);
                 synchronized (lockPending) {
-                    pending.add(sentMessage);
+                    pending.addAll(sentMessages);
                 }
                 synchronized (lockAck) {
-                    ack.put(sentMessage, 1);
+                    for (String sentMessage: sentMessages)
+                        ack.put(sentMessage, 1);
                 }
-                try {
-                    messageToSendDown.put(sentMessage);
-                } catch (InterruptedException e) {
-                    System.out.println("Sending message in URB error: " + e.toString());
+//                try {
+//                    messageToSendDown.put(sentMessage);
+//                } catch (InterruptedException e) {
+//                    System.out.println("Sending message in URB error: " + e.toString());
+//                }
+                for (Host h: hosts) {
+                    if (id == h.getId()) {
+                        continue;
+                    }
+                    List<Packet> packets = sentMessages.stream().map(m ->
+                    {
+                        try {
+                            return new Packet(m, InetAddress.getByName(h.getIp()), h.getPort(), h.getId());
+                        } catch (UnknownHostException e) {
+                            return null;
+                        }
+                    }).collect(Collectors.toList());
+                    messageToSendDown.addAll(packets);
+                    //Packet p = new Packet(message, InetAddress.getByName(h.getIp()), h.getPort(), h.getId());
+                    //messageToSendDown.put(p);
                 }
             }
         }
@@ -76,18 +107,27 @@ public class UniformReliableBroadcast {
         public void run() {
             String key;
             while (true) {
-                String gotPack = null;
+                String got = null;
                 try {
-                    gotPack = messageDeliveredDown.take();
+                    got = messageDeliveredDown.take();
                 } catch (InterruptedException e) {
                     System.out.println("Getting delivered packet in URB: " + e.toString());
                 }
-                String[] gotSplit = gotPack.split(" ");
-                //System.out.println("gotPack: " + gotPack);
-                if (gotSplit.length == 2)
-                    key = gotPack;
-                else
-                    key = gotSplit[1] + " " + gotSplit[2];
+                List<String> gotPacks = new LinkedList<>();
+                gotPacks.add(got);
+                try {
+                    Thread.sleep(200);
+                } catch (InterruptedException e) {
+                    System.out.println("Sleeping in URB deliver: " + e.toString());
+                }
+                messageDeliveredDown.drainTo(gotPacks);
+                for (String gotPack: gotPacks) {
+                    String[] gotSplit = gotPack.split(" ");
+                    //System.out.println("gotPack: " + gotPack);
+                    if (gotSplit.length == 2)
+                        key = gotPack;
+                    else
+                        key = gotSplit[1] + " " + gotSplit[2];
 
 //                if (gotSplit.length==2)
 //                    System.out.println("Received " + gotPack);
@@ -96,26 +136,27 @@ public class UniformReliableBroadcast {
 //                for (Map.Entry<String, Integer> entry : ack.entrySet()) {
 //                    System.out.println(entry.getKey() + "=" + entry.getValue());
 //                }
-                synchronized (lockAck) {
-                    if (!ack.containsKey(key))
-                        ack.put(key, 2);
-                    else {
-                        Integer oldAck = ack.get(key);
-                        ack.put(key, oldAck + 1);
+                    synchronized (lockAck) {
+                        if (!ack.containsKey(key))
+                            ack.put(key, 2);
+                        else {
+                            Integer oldAck = ack.get(key);
+                            ack.put(key, oldAck + 1);
+                        }
                     }
-                }
-                //System.out.println("ack[key]: " + ack.get(key));
-                //System.out.println("Pending: " + pending);
-                if (!pending.contains(key)) {
-                    synchronized (lockPending) {
-                        pending.add(key);
-                    }
-                    String sentMessage = String.format("%d %s", id, key);
-                    //System.out.println("Sending " + sentMessage);
-                    try {
-                        messageToSendDown.put(sentMessage);
-                    } catch (InterruptedException e) {
-                        System.out.println("Sending message in URB error: " + e.toString());
+                    //System.out.println("ack[key]: " + ack.get(key));
+                    //System.out.println("Pending: " + pending);
+                    if (!pending.contains(key)) {
+                        synchronized (lockPending) {
+                            pending.add(key);
+                        }
+                        String sentMessage = String.format("%d %s", id, key);
+                        //System.out.println("Sending " + sentMessage);
+                        try {
+                            messageToSendUp.put(sentMessage);
+                        } catch (InterruptedException e) {
+                            System.out.println("Sending message in URB error: " + e.toString());
+                        }
                     }
                 }
                 List <String> deliverable;
@@ -127,13 +168,14 @@ public class UniformReliableBroadcast {
                 }
                 //System.out.println("Deliverable: " + deliverable);
                 if (deliverable.size()!=0) {
-                    String deliver = deliverable.get(0);
-                    delivered.add(deliver);
-                    try {
-                        messageToDeliverUp.put(deliver);
-                    } catch (InterruptedException e) {
-                        System.out.println("Delivering message in URB error: " + e.toString());
-                    }
+                    //String deliver = deliverable.get(0);
+                    delivered.addAll(deliverable);
+//                    try {
+//                        messageToDeliverUp.put(deliver);
+//                    } catch (InterruptedException e) {
+//                        System.out.println("Delivering message in URB error: " + e.toString());
+//                    }
+                    messageToDeliverUp.addAll(deliverable);
                 }
             }
         }
@@ -151,7 +193,7 @@ public class UniformReliableBroadcast {
         UniformReliableBroadcast that = (UniformReliableBroadcast) o;
         return id == that.id &&
                 minCorrect == that.minCorrect &&
-                beb.equals(that.beb) &&
+                pf.equals(that.pf) &&
                 delivered.equals(that.delivered) &&
                 pending.equals(that.pending) &&
                 ack.equals(that.ack) &&
@@ -163,7 +205,7 @@ public class UniformReliableBroadcast {
 
     @Override
     public int hashCode() {
-        return Objects.hash(beb, delivered, pending, ack, id, minCorrect,
+        return Objects.hash(pf, delivered, pending, ack, id, minCorrect,
                 messageToSendDown, messageToSendUp, messageDeliveredDown, messageToDeliverUp);
     }
 }

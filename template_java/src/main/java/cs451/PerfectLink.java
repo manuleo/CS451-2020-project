@@ -65,35 +65,45 @@ public class PerfectLink {
         @Override
         public void run() {
             while(true) {
-                Packet p = null;
+                ArrayList<Packet> pToSend = new ArrayList<>();
+                Packet p1 = null;
                 try {
-                    p = messageToSend.take();
+                    p1 = messageToSend.take();
                 } catch (InterruptedException e) {
                     System.out.println("Getting packet in PF link error: " + e.toString());
                 }
-                assert p != null;
-                String sendString = p.getMessage();
-                InetAddress destIp = p.getDestIp();
-                int destPort = p.getDestPort();
-                byte[] sendBuf = sendString.getBytes();
-
-                // Check at the beginning of a new cycle to avoid sending extra packets
-//                synchronized (lock) {
-//                    if (recACKs.getOrDefault(p, false)) {
-//                        continue;
-//                    }
-//                }
-
-                // Send data
-                //System.out.println("Sending " + sendString + " to " + p.getDestId() + " in send");
-                synchronized (lock) {
-                    toRecACK.put(p, System.nanoTime());
+                assert (p1 != null);
+                pToSend.add(p1);
+                try {
+                    Thread.sleep(200);
+                } catch (InterruptedException e) {
+                    System.out.println("Sleeping to create batch in PF link error: " + e.toString());
                 }
-                DatagramPacket dpSend =
-                        new DatagramPacket(sendBuf, sendBuf.length, destIp, destPort);
-                sendOnSocket(dpSend);
-                sentMessage.add(sendString);
-                //TODO: try to add some sort of "flow control" to avoid this thread to overcome the others
+                messageToSend.drainTo(pToSend);
+                for (Packet p: pToSend) {
+                    String sendString = p.getMessage();
+                    InetAddress destIp = p.getDestIp();
+                    int destPort = p.getDestPort();
+                    byte[] sendBuf = sendString.getBytes();
+
+                    // Check at the beginning of a new cycle to avoid sending extra packets
+                    //                synchronized (lock) {
+                    //                    if (recACKs.getOrDefault(p, false)) {
+                    //                        continue;
+                    //                    }
+                    //                }
+
+                    // Send data
+                    //System.out.println("Sending " + sendString + " to " + p.getDestId() + " in send");
+                    synchronized (lock) {
+                        toRecACK.put(p, System.nanoTime());
+                    }
+                    DatagramPacket dpSend =
+                            new DatagramPacket(sendBuf, sendBuf.length, destIp, destPort);
+                    sendOnSocket(dpSend);
+                    sentMessage.add(sendString);
+                    //TODO: try to add some sort of "flow control" to avoid this thread to overcome the others
+                }
             }
         }
     }
@@ -113,9 +123,13 @@ public class PerfectLink {
                     recAck = recACKs.poll(timeout, TimeUnit.NANOSECONDS);
                 } catch (InterruptedException ignored) {
                 }
-                if (recACKs!=null) {
+                if (recAck!=null) {
+                    List<Packet> newAcks = new LinkedList<>();
+                    newAcks.add(recAck);
+                    recACKs.drainTo(newAcks);
                     synchronized (lock) {
-                        toRecACK.remove(recAck);
+                        //toRecACK.remove(recAck);
+                        toRecACK.keySet().removeAll(newAcks);
                     }
                 }
                 LinkedList<Packet> toAck;
@@ -126,13 +140,14 @@ public class PerfectLink {
                         .filter(x -> now - x.getValue() >= timeout)
                         .map(Map.Entry::getKey).collect(Collectors.toCollection(LinkedList::new));
                 }
-                for (Packet p: toAck) {
-                    try {
-                        messageToSend.put(p);
-                    } catch (InterruptedException e) {
-                        System.out.println("Exception trying to put not acked in PF " + e.toString());
-                    }
-                }
+                messageToSend.addAll(toAck);
+//                for (Packet p: toAck) {
+//                    try {
+//                        messageToSend.put(p);
+//                    } catch (InterruptedException e) {
+//                        System.out.println("Exception trying to put not acked in PF " + e.toString());
+//                    }
+//                }
             }
         }
     }

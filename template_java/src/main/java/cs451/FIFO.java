@@ -40,16 +40,26 @@ public class FIFO {
                 } catch (InterruptedException e) {
                     System.out.println("Getting message in FIFO error: " + e.toString());
                 }
-                lsn += 1;
+                List<String> messages = new LinkedList<>();
+                messages.add(message);
+                try {
+                    Thread.sleep(200);
+                } catch (InterruptedException e) {
+                    System.out.println("Sleeping in FIFO error: " + e.toString());
+                }
+                messageToSendUp.drainTo(messages);
+                lsn += messages.size();
                 // The message carries only the sequence number
                 //System.out.println("Message to send: " + message);
                 //System.out.println("Sequence number: " + lsn);
-                assert (Objects.equals(message, String.valueOf(lsn)));
-                try {
-                    messageToSendDown.put(String.valueOf(lsn));
-                } catch (InterruptedException e) {
-                    System.out.println("Sending message in FIFO error: " + e.toString());
-                }
+                //assert (Objects.equals(message, String.valueOf(lsn)));
+//                try {
+//                    messageToSendDown.put(String.valueOf(lsn));
+//                } catch (InterruptedException e) {
+//                    System.out.println("Sending message in FIFO error: " + e.toString());
+//                }
+                //System.out.println("I'm sending" + messages);
+                messageToSendDown.addAll(messages);
             }
         }
     }
@@ -63,36 +73,58 @@ public class FIFO {
         @Override
         public void run() {
             while (true) {
-                String gotPack = null;
+                String got = null;
                 try {
-                    gotPack = messageDeliveredDown.take();
+                    got = messageDeliveredDown.take();
                 } catch (InterruptedException e) {
                     System.out.println("Getting delivered packet in FIFO: " + e.toString());
                 }
-                //System.out.println("FIFO got: " + gotPack);
-                String[] gotSplit = gotPack.split(" ");
-                int pid = Integer.parseInt(gotSplit[0]);
-                HashSet<String> messages = pending.getOrDefault(pid, new HashSet<>());
-                messages.add(gotPack);
-                pending.put(pid, messages);
-                while (true) {
-                    HashSet<String> newMess = pending.get(pid);
-                    String toDeliver = newMess.stream()
-                            .filter(x -> Integer.parseInt(x.split(" ")[1]) == seqNums[pid-1])
-                            .findFirst()
-                            .orElse("NOMESS");
-                    //System.out.println(toDeliver);
-                    if(toDeliver.equals("NOMESS"))
-                        break;
-                    else {
-                        //System.out.println("FIFO deliverable: " + toDeliver);
-                        seqNums[pid-1]+=1;
-                        newMess.remove(toDeliver);
-                        pending.put(pid, newMess);
-                        try {
-                            messageToDeliverUp.put(toDeliver);
-                        } catch (InterruptedException e) {
-                            System.out.println("Unable to deliver packet in FIFO: " + e.toString());
+                List<String> gotPacks = new LinkedList<>();
+                gotPacks.add(got);
+                try {
+                    Thread.sleep(200);
+                } catch (InterruptedException e) {
+                     System.out.println("Sleeping in FIFO deliver: " + e.toString());
+                }
+                messageDeliveredDown.drainTo(gotPacks);
+                HashSet<Integer> pids = new HashSet<>();
+                for (String gotPack: gotPacks) {
+                    //System.out.println("FIFO got: " + gotPack);
+                    String[] gotSplit = gotPack.split(" ");
+                    int pid = Integer.parseInt(gotSplit[0]);
+                    pids.add(pid);
+                    HashSet<String> messages = pending.getOrDefault(pid, new HashSet<>());
+                    messages.add(gotPack);
+                    pending.put(pid, messages);
+                }
+                for (int pid: pids) {
+                    List<String> allDelivers = new LinkedList<>();
+                    while (true) {
+                        HashSet<String> newMess = pending.get(pid);
+                        String toDeliver = newMess.stream()
+                                .filter(x -> Integer.parseInt(x.split(" ")[1]) == seqNums[pid-1])
+                                .findFirst()
+                                .orElse("NOMESS");
+                        //System.out.println(toDeliver);
+                        if(toDeliver.equals("NOMESS")) {
+                            if (allDelivers.size()!=0) {
+                                newMess.removeAll(allDelivers);
+                                pending.put(pid, newMess);
+                                messageToDeliverUp.addAll(allDelivers);
+                            }
+                            break;
+                        }
+                        else {
+                            //System.out.println("FIFO deliverable: " + toDeliver);
+                            seqNums[pid-1]+=1;
+                            allDelivers.add(toDeliver);
+//                            newMess.remove(toDeliver);
+//                            pending.put(pid, newMess);
+//                            try {
+//                                messageToDeliverUp.put(toDeliver);
+//                            } catch (InterruptedException e) {
+//                                System.out.println("Unable to deliver packet in FIFO: " + e.toString());
+//                            }
                         }
                     }
                 }
