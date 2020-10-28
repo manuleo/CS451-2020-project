@@ -28,7 +28,6 @@ public class UniformReliableBroadcast {
         this.messageToDeliverUp = messageToDeliverUp;
         this.messageDeliveredDown = new LinkedBlockingQueue<>();
         this.messageToSendDown = new LinkedBlockingQueue<>();
-        //this.beb = new BestEffortBroadcast(hosts, id, messageToSendDown, messageDeliveredDown);
         this.pf = new PerfectLink(id, hosts.get(id-1).getPort(), hosts, messageToSendDown, messageDeliveredDown);
         this.id = id;
         int lenHost = hosts.size();
@@ -66,30 +65,27 @@ public class UniformReliableBroadcast {
                 }
                 synchronized (lockAck) {
                     for (String sentMessage: sentMessages)
-                        ack.put(sentMessage, 1);
+                            ack.put(sentMessage, 1);
                 }
-//                try {
-//                    messageToSendDown.put(sentMessage);
-//                } catch (InterruptedException e) {
-//                    System.out.println("Sending message in URB error: " + e.toString());
-//                }
-                for (Host h: hosts) {
-                    if (id == h.getId()) {
-                        continue;
-                    }
-                    List<Packet> packets = sentMessages.stream().map(m ->
-                    {
-                        try {
-                            return new Packet(m, InetAddress.getByName(h.getIp()), h.getPort(), h.getId());
-                        } catch (UnknownHostException e) {
-                            return null;
-                        }
-                    }).collect(Collectors.toList());
-                    messageToSendDown.addAll(packets);
-                    //Packet p = new Packet(message, InetAddress.getByName(h.getIp()), h.getPort(), h.getId());
-                    //messageToSendDown.put(p);
-                }
+                send(sentMessages);
             }
+        }
+    }
+
+    public void send(List<String> messagesToSend) {
+        for (Host h: hosts) {
+            if (id == h.getId()) {
+                continue;
+            }
+            List<Packet> packets = messagesToSend.stream().map(m ->
+            {
+                try {
+                    return new Packet(m, InetAddress.getByName(h.getIp()), h.getPort(), h.getId());
+                } catch (UnknownHostException e) {
+                    return null;
+                }
+            }).collect(Collectors.toList());
+            messageToSendDown.addAll(packets);
         }
     }
 
@@ -108,6 +104,7 @@ public class UniformReliableBroadcast {
             String key;
             while (true) {
                 String got = null;
+                List<String> messagesToSend = new LinkedList<>();
                 try {
                     got = messageDeliveredDown.take();
                 } catch (InterruptedException e) {
@@ -116,7 +113,7 @@ public class UniformReliableBroadcast {
                 List<String> gotPacks = new LinkedList<>();
                 gotPacks.add(got);
                 try {
-                    Thread.sleep(200);
+                    Thread.sleep(0);
                 } catch (InterruptedException e) {
                     System.out.println("Sleeping in URB deliver: " + e.toString());
                 }
@@ -151,12 +148,8 @@ public class UniformReliableBroadcast {
                             pending.add(key);
                         }
                         String sentMessage = String.format("%d %s", id, key);
+                        messagesToSend.add(sentMessage);
                         //System.out.println("Sending " + sentMessage);
-                        try {
-                            messageToSendUp.put(sentMessage);
-                        } catch (InterruptedException e) {
-                            System.out.println("Sending message in URB error: " + e.toString());
-                        }
                     }
                 }
                 List <String> deliverable;
@@ -168,15 +161,10 @@ public class UniformReliableBroadcast {
                 }
                 //System.out.println("Deliverable: " + deliverable);
                 if (deliverable.size()!=0) {
-                    //String deliver = deliverable.get(0);
                     delivered.addAll(deliverable);
-//                    try {
-//                        messageToDeliverUp.put(deliver);
-//                    } catch (InterruptedException e) {
-//                        System.out.println("Delivering message in URB error: " + e.toString());
-//                    }
                     messageToDeliverUp.addAll(deliverable);
                 }
+                send(messagesToSend);
             }
         }
     }

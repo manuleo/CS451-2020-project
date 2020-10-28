@@ -8,6 +8,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
+
 public class PerfectLink {
     private final int id;
     private final int myPort;
@@ -20,9 +21,6 @@ public class PerfectLink {
     private static final HashSet<String> recMessage = new HashSet<>();
     private static final HashSet<String> sentMessage = new HashSet<>();
     private static final HashMap<Packet, Long> toRecACK = new HashMap<>();
-//    private static ArrayList<String> deliverMessages = new ArrayList<>();
-//    private static ArrayList<String> gotSend = new ArrayList<>();
-//    private static ArrayList<String> gotRec = new ArrayList<>();
     private static final Object lock = new Object();
 
 
@@ -47,14 +45,9 @@ public class PerfectLink {
             System.out.println("Creating socket to receive ACK in send error: " + e.toString());
         }
         assert this.dsRec != null;
-//        for (int p = 1; p <= numHosts; p++) {
-//            if (p!=this.id)
-//                recACKs.put(p, new HashSet<>());
-//        }
         portMap = new HashMap<>();
         for (Host h: hosts)
             portMap.put(h.getId(), h.getPort());
-
         receiveAndDeliver();
         startAckCheck();
         send();
@@ -64,6 +57,7 @@ public class PerfectLink {
 
         @Override
         public void run() {
+            boolean recMine = false;
             while(true) {
                 ArrayList<Packet> pToSend = new ArrayList<>();
                 Packet p1 = null;
@@ -85,14 +79,6 @@ public class PerfectLink {
                     InetAddress destIp = p.getDestIp();
                     int destPort = p.getDestPort();
                     byte[] sendBuf = sendString.getBytes();
-
-                    // Check at the beginning of a new cycle to avoid sending extra packets
-                    //                synchronized (lock) {
-                    //                    if (recACKs.getOrDefault(p, false)) {
-                    //                        continue;
-                    //                    }
-                    //                }
-
                     // Send data
                     //System.out.println("Sending " + sendString + " to " + p.getDestId() + " in send");
                     synchronized (lock) {
@@ -102,6 +88,13 @@ public class PerfectLink {
                             new DatagramPacket(sendBuf, sendBuf.length, destIp, destPort);
                     sendOnSocket(dpSend);
                     sentMessage.add(sendString);
+                    if (!recMine && sentMessage.size()>=Main.m) {
+                        if (sentMessage.containsAll(Main.broadcasted)) {
+                            System.out.println("Signaling end of broadcasting messages");
+                            Main.coordinator.finishedBroadcasting();
+                            recMine = true;
+                        }
+                    }
                     //TODO: try to add some sort of "flow control" to avoid this thread to overcome the others
                 }
             }
@@ -141,13 +134,6 @@ public class PerfectLink {
                         .map(Map.Entry::getKey).collect(Collectors.toCollection(LinkedList::new));
                 }
                 messageToSend.addAll(toAck);
-//                for (Packet p: toAck) {
-//                    try {
-//                        messageToSend.put(p);
-//                    } catch (InterruptedException e) {
-//                        System.out.println("Exception trying to put not acked in PF " + e.toString());
-//                    }
-//                }
             }
         }
     }

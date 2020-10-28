@@ -4,7 +4,6 @@ import java.util.*;
 import java.util.concurrent.LinkedBlockingQueue;
 
 public class FIFO {
-
     private int id;
     private UniformReliableBroadcast urb;
     private int lsn = 0;
@@ -52,12 +51,6 @@ public class FIFO {
                 // The message carries only the sequence number
                 //System.out.println("Message to send: " + message);
                 //System.out.println("Sequence number: " + lsn);
-                //assert (Objects.equals(message, String.valueOf(lsn)));
-//                try {
-//                    messageToSendDown.put(String.valueOf(lsn));
-//                } catch (InterruptedException e) {
-//                    System.out.println("Sending message in FIFO error: " + e.toString());
-//                }
                 //System.out.println("I'm sending" + messages);
                 messageToSendDown.addAll(messages);
             }
@@ -82,7 +75,7 @@ public class FIFO {
                 List<String> gotPacks = new LinkedList<>();
                 gotPacks.add(got);
                 try {
-                    Thread.sleep(200);
+                    Thread.sleep(0);
                 } catch (InterruptedException e) {
                      System.out.println("Sleeping in FIFO deliver: " + e.toString());
                 }
@@ -101,12 +94,11 @@ public class FIFO {
                     List<String> allDelivers = new LinkedList<>();
                     while (true) {
                         HashSet<String> newMess = pending.get(pid);
-                        String toDeliver = newMess.stream()
+                        Optional<String> toDeliver = newMess.stream()
                                 .filter(x -> Integer.parseInt(x.split(" ")[1]) == seqNums[pid-1])
-                                .findFirst()
-                                .orElse("NOMESS");
+                                .findFirst();
                         //System.out.println(toDeliver);
-                        if(toDeliver.equals("NOMESS")) {
+                        if(toDeliver.isEmpty()) {
                             if (allDelivers.size()!=0) {
                                 newMess.removeAll(allDelivers);
                                 pending.put(pid, newMess);
@@ -117,14 +109,7 @@ public class FIFO {
                         else {
                             //System.out.println("FIFO deliverable: " + toDeliver);
                             seqNums[pid-1]+=1;
-                            allDelivers.add(toDeliver);
-//                            newMess.remove(toDeliver);
-//                            pending.put(pid, newMess);
-//                            try {
-//                                messageToDeliverUp.put(toDeliver);
-//                            } catch (InterruptedException e) {
-//                                System.out.println("Unable to deliver packet in FIFO: " + e.toString());
-//                            }
+                            allDelivers.add(toDeliver.get());
                         }
                     }
                 }

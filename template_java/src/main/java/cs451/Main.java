@@ -7,13 +7,13 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.TimeUnit;
 
 public class Main {
     private static LinkedBlockingQueue<String> messageToSend = new LinkedBlockingQueue<>();
     private static LinkedBlockingQueue<String> messageDelivered = new LinkedBlockingQueue<>();
-    private static HashSet<String> broacasted = new HashSet<>();
-    private static HashSet<String> myMess = new HashSet<>();
+    protected static HashSet<String> broadcasted = new HashSet<>();
+    protected static Coordinator coordinator;
+    protected static int m;
     private static LinkedList<String> recPack = new LinkedList<>();
     private static LinkedList<String> out = new LinkedList<>();
     private static String outName;
@@ -27,6 +27,7 @@ public class Main {
         System.out.println("Writing output.");
         //System.out.println(recPack);
         System.out.println("Total message delivered: " + recPack.size());
+
         try (FileWriter fw = new FileWriter(outName)) {
             synchronized (lockOut) {
                 for (String s: out) {
@@ -36,22 +37,6 @@ public class Main {
         } catch (IOException e) {
             System.out.println("Impossible to write " + e.toString());
         }
-//        Set<String> testPack = new HashSet<>();
-//        for(int h = 1; h<4; h++) {
-//            for (int m = 0; m < 50; m++) {
-//                String t = String.format("%d %d", h,m);
-//                testPack.add(t);
-//            }
-//        }
-//        testPack.removeAll(recPack);
-//        System.out.println("Missing messages " + testPack);
-//        System.out.println(PerfectLink.getSentMessage());
-//        for (Map.Entry<Integer, HashSet<String>> entry : PerfectLink.getRecACKs().entrySet()) {
-//                    System.out.println(entry.getKey() + "=" + entry.getValue());
-//        }
-//        System.out.println(PerfectLink.getRecMessage());
-//        System.out.println(PerfectLink.getGotRec());
-//        System.out.println(PerfectLink.getGotSend());
 
     }
 
@@ -85,18 +70,18 @@ public class Main {
         System.out.println("Signal: " + parser.signalIp() + ":" + parser.signalPort());
         System.out.println("Output: " + parser.output());
         outName = parser.output();
-        int m = 0;
+        m = 0;
         // if config is defined; always check before parser.config()
         if (parser.hasConfig()) {
             System.out.println("Config: " + parser.config());
             m = parseConfig(parser.config());
         }
-        Coordinator coordinator = new Coordinator(parser.myId(), parser.barrierIp(), parser.barrierPort(), parser.signalIp(), parser.signalPort());
+        coordinator = new Coordinator(parser.myId(), parser.barrierIp(), parser.barrierPort(), parser.signalIp(), parser.signalPort());
         System.out.println("Waiting for all processes for finish initialization");
         coordinator.waitOnBarrier();
 
         System.out.println("Broadcasting messages...");
-        FIFOBroadcast(parser, coordinator, m);
+        FIFOBroadcast(parser);
 
 //        System.out.println("Signaling end of broadcasting messages");
 //        coordinator.finishedBroadcasting();
@@ -216,10 +201,9 @@ public class Main {
 //        }
 //    }
 
-    private static void FIFOBroadcast(Parser parser, Coordinator coordinator, int m) {
+    private static void FIFOBroadcast(Parser parser) {
         FIFO fifo = new FIFO(parser.hosts(), parser.myId(), messageToSend, messageDelivered);
         class Deliver extends Thread {
-            Boolean recMine = false;
             @Override
             public void run() {
                 while (true) {
@@ -237,7 +221,7 @@ public class Main {
 //                    }
 //                    recPack.add(gotPack);
 //                    try {
-//                        Thread.sleep(200);
+//                        Thread.sleep(0);
 //                    } catch (InterruptedException e) {
 //                        System.out.println("Sleeping in main error: " + e.toString());
 //                    }
@@ -248,18 +232,6 @@ public class Main {
                             out.add("d " + got);
                     }
                     recPack.addAll(newGot);
-                    if (!recMine) {
-                        for (String got: newGot) {
-                            if(Integer.parseInt(got.split(" ")[0]) == parser.myId()) {
-                                myMess.add(got);
-                                if (myMess.equals(broacasted)) {
-                                    recMine = true;
-                                    System.out.println("Signaling end of broadcasting messages");
-                                    coordinator.finishedBroadcasting();
-                                }
-                            }
-                        }
-                    }
                     if (recPack.size()%100==0)
                         System.out.println("Delivered " + recPack.size() + " packets");
                     if (recPack.size() == parser.hosts().size() * m) {
@@ -285,7 +257,7 @@ public class Main {
                     synchronized (lockOut) {
                         out.add("b " + i);
                     }
-                    broacasted.add(parser.myId() + " " + i);
+                    broadcasted.add(parser.myId() + " " + i);
                 }
             }
         }

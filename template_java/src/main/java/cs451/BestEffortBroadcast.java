@@ -47,7 +47,7 @@ public class BestEffortBroadcast {
                 List<String> messages = new LinkedList<>();
                 messages.add(message);
                 try {
-                    Thread.sleep(200);
+                    Thread.sleep(0);
                 } catch (InterruptedException e) {
                     System.out.println("Sleeping in BEB send error: " + e.toString());
                 }
