@@ -9,9 +9,9 @@ import java.util.stream.Collectors;
 public class UniformReliableBroadcast {
 
     private final PerfectLink pf;
-    HashSet<String> delivered = new HashSet<>();
-    HashSet<String> pending = new HashSet<>();
-    HashMap<String, Integer> ack = new HashMap<>();
+    private HashSet<String> delivered = new HashSet<>();
+    private HashSet<String> pending = new HashSet<>();
+    private HashMap<String, Integer> ack = new HashMap<>();
     private final List<Host> hosts;
     private final int id;
     private final int minCorrect;
@@ -31,10 +31,10 @@ public class UniformReliableBroadcast {
         this.pf = new PerfectLink(id, hosts.get(id-1).getPort(), hosts, messageToSendDown, messageDeliveredDown);
         this.id = id;
         int lenHost = hosts.size();
-        minCorrect = lenHost/2 + 1;
+        this.minCorrect = lenHost/2 + 1;
+        this.hosts = hosts;
         receiveAndDeliver();
         broadcast();
-        this.hosts = hosts;
     }
 
 
@@ -58,7 +58,8 @@ public class UniformReliableBroadcast {
                     System.out.println("Sleeping in URB error: " + e.toString());
                 }
                 messageToSendUp.drainTo(sentMessages);
-                sentMessages = sentMessages.stream().map(m -> String.format("%d %s", id, m)).collect(Collectors.toList());
+                sentMessages = sentMessages.stream().map(m ->
+                        String.format("%d %s", id, m)).collect(Collectors.toList());
                 //System.out.println("Sending " + sentMessage);
                 synchronized (lockPending) {
                     pending.addAll(sentMessages);

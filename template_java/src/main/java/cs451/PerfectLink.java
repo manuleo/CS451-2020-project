@@ -19,7 +19,7 @@ public class PerfectLink {
     private LinkedBlockingQueue<String> messageToDeliver;
     private LinkedBlockingQueue<Packet> recACKs = new LinkedBlockingQueue<>();
     private int numOutstanding;
-    private int outLimit = Main.m;
+    private int outLimit = 500;
     private static final HashSet<String> recMessage = new HashSet<>();
     private static final HashSet<String> sentMessage = new HashSet<>();
     private static final HashMap<Packet, Long> toRecACK = new HashMap<>();
@@ -82,7 +82,9 @@ public class PerfectLink {
                     while (numOutstanding >= outLimit) {
                         tries+=1;
                         if (tries==5) {
-                            outLimit*=2;
+                            synchronized (lock) {
+                                outLimit*=2;
+                            }
                            // System.out.println(outLimit);
                         }
                         //System.out.println("Busy waiting");
@@ -142,6 +144,8 @@ public class PerfectLink {
                     synchronized (lock) {
                         //toRecACK.remove(recAck);
                         numOutstanding-=newAcks.size();
+                        if (numOutstanding==outLimit/2)
+                            outLimit/=2;
                         toRecACK.keySet().removeAll(newAcks);
                     }
                 }
