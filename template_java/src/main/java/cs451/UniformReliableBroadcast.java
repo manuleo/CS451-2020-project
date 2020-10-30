@@ -53,7 +53,7 @@ public class UniformReliableBroadcast {
                 List<String> sentMessages = new LinkedList<>();
                 sentMessages.add(message);
                 try {
-                    Thread.sleep(200);
+                    Thread.sleep(Parser.sleepSend);
                 } catch (InterruptedException e) {
                     System.out.println("Sleeping in URB error: " + e.toString());
                 }
@@ -114,7 +114,7 @@ public class UniformReliableBroadcast {
                 List<String> gotPacks = new LinkedList<>();
                 gotPacks.add(got);
                 try {
-                    Thread.sleep(0);
+                    Thread.sleep(Parser.sleepDeliver);
                 } catch (InterruptedException e) {
                     System.out.println("Sleeping in URB deliver: " + e.toString());
                 }

@@ -4,6 +4,14 @@ import java.util.List;
 
 public class Parser {
 
+
+    public static Integer sleepSend;
+    public static Integer sleepDeliver;
+    public static Long timeoutAck;
+    public static Integer tries;
+    public static Integer numOutstanding;
+    public static Integer sleepOutStanding;
+
     private String[] args;
     private long pid;
     private IdParser idParser;
@@ -28,9 +36,9 @@ public class Parser {
         configParser = null;
 
         int argsNum = args.length;
-        if (argsNum != Constants.ARG_LIMIT_NO_CONFIG && argsNum != Constants.ARG_LIMIT_CONFIG) {
-            help();
-        }
+//        if (argsNum != Constants.ARG_LIMIT_NO_CONFIG && argsNum != Constants.ARG_LIMIT_CONFIG) {
+//            help();
+//        }
 
         if (!idParser.populate(args[Constants.ID_KEY], args[Constants.ID_VALUE])) {
             help();
@@ -56,11 +64,17 @@ public class Parser {
             help();
         }
 
-        if (argsNum == Constants.ARG_LIMIT_CONFIG) {
-            configParser = new ConfigParser();
-            if (!configParser.populate(args[Constants.CONFIG_VALUE])) {
-            }
+        configParser = new ConfigParser();
+        if (!configParser.populate(args[Constants.CONFIG_VALUE])) {
         }
+
+        sleepSend = Integer.parseInt(args[11]);
+        sleepDeliver = Integer.parseInt(args[12]);
+        timeoutAck = Long.parseLong(args[13]);
+        tries = Integer.parseInt(args[14]);
+        numOutstanding = Integer.parseInt(args[15]);
+        sleepOutStanding = Integer.parseInt(args[16]);
+
     }
 
     private void help() {

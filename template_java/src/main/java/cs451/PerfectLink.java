@@ -19,7 +19,7 @@ public class PerfectLink {
     private LinkedBlockingQueue<String> messageToDeliver;
     private LinkedBlockingQueue<Packet> recACKs = new LinkedBlockingQueue<>();
     private int numOutstanding;
-    private int outLimit = 500;
+    private int outLimit = Parser.numOutstanding;
     private static final HashSet<String> recMessage = new HashSet<>();
     private static final HashSet<String> sentMessage = new HashSet<>();
     private static final HashMap<Packet, Long> toRecACK = new HashMap<>();
@@ -72,7 +72,7 @@ public class PerfectLink {
                 assert (p1 != null);
                 pToSend.add(p1);
                 try {
-                    Thread.sleep(200);
+                    Thread.sleep(Parser.sleepSend);
                 } catch (InterruptedException e) {
                     System.out.println("Sleeping to create batch in PF link error: " + e.toString());
                 }
@@ -81,7 +81,7 @@ public class PerfectLink {
                     int tries = 0;
                     while (numOutstanding >= outLimit) {
                         tries+=1;
-                        if (tries==5) {
+                        if (tries==Parser.tries) {
                             synchronized (lock) {
                                 outLimit*=2;
                             }
@@ -89,7 +89,7 @@ public class PerfectLink {
                         }
                         //System.out.println("Busy waiting");
                         try {
-                            Thread.sleep(500);
+                            Thread.sleep(Parser.sleepOutStanding);
                         } catch (InterruptedException e) {
                             System.out.println("Sleeping for outstanding in PF link error: " + e.toString());
                         }
@@ -128,7 +128,7 @@ public class PerfectLink {
     }
 
     private class ACKChecker extends Thread {
-        Long timeout = 10L*((long) Math.pow(10, 9));
+        Long timeout = Parser.timeoutAck*((long) Math.pow(10, 9));
         @Override
         public void run() {
             while (true) {

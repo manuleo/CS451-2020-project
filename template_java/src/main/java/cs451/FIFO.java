@@ -42,7 +42,7 @@ public class FIFO {
                 List<String> messages = new LinkedList<>();
                 messages.add(message);
                 try {
-                    Thread.sleep(200);
+                    Thread.sleep(Parser.sleepSend);
                 } catch (InterruptedException e) {
                     System.out.println("Sleeping in FIFO error: " + e.toString());
                 }
@@ -75,7 +75,7 @@ public class FIFO {
                 List<String> gotPacks = new LinkedList<>();
                 gotPacks.add(got);
                 try {
-                    Thread.sleep(0);
+                    Thread.sleep(Parser.sleepDeliver);
                 } catch (InterruptedException e) {
                      System.out.println("Sleeping in FIFO deliver: " + e.toString());
                 }
