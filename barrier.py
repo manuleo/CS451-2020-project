@@ -47,6 +47,7 @@ class Barrier:
         for pid, conn in connections:
             self.startTimes[pid] = int(time.time() * 1000)
             conn.close()
+            self.sock.close()
 
         return None
 

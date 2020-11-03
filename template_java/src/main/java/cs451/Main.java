@@ -38,7 +38,7 @@ public class Main {
             System.out.println("Impossible to write " + e.toString());
         }
 
-        System.out.println(UniformReliableBroadcast.ack);
+        //System.out.println(UniformReliableBroadcast.ack);
 
     }
 

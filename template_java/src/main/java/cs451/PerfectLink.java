@@ -17,12 +17,14 @@ public class PerfectLink {
     private HashMap<Integer, Integer> portMap;
     private LinkedBlockingQueue<Packet> messageToSend;
     private LinkedBlockingQueue<String> messageToDeliver;
-    private LinkedBlockingQueue<Packet> recACKs = new LinkedBlockingQueue<>();
+    private LinkedBlockingQueue<PacketTimeRnum> recACKs = new LinkedBlockingQueue<>();
     private int numOutstanding;
     private int outLimit = 1500;
+    private List<Host> hosts;
+    private ArrayList<HashMap<Packet, ArrayList<Long>>> toRecAckProcess;
     private static final HashSet<String> recMessage = new HashSet<>();
     private static final HashSet<String> sentMessage = new HashSet<>();
-    private static final HashMap<Packet, Long> toRecACK = new HashMap<>();
+    //private static final HashMap<Packet, Long> toRecACK = new HashMap<>();
     private static final Object lock = new Object();
 
 
@@ -47,9 +49,13 @@ public class PerfectLink {
             System.out.println("Creating socket to receive ACK in send error: " + e.toString());
         }
         assert this.dsRec != null;
+        this.hosts = hosts;
         portMap = new HashMap<>();
-        for (Host h: hosts)
+        toRecAckProcess = new ArrayList<>(hosts.size());
+        for (Host h: hosts) {
             portMap.put(h.getId(), h.getPort());
+            toRecAckProcess.add(h.getId()-1, new HashMap<>());
+        }
         this.numOutstanding = 0;
         receiveAndDeliver();
         startAckCheck();
@@ -97,14 +103,20 @@ public class PerfectLink {
                     String sendString = p.getMessage();
                     InetAddress destIp = p.getDestIp();
                     int destPort = p.getDestPort();
-                    byte[] sendBuf = sendString.getBytes();
+                    String sendStringWithRet;
                     // Send data
                     //System.out.println("Sending " + sendString + " to " + p.getDestId() + " in send");
                     synchronized (lock) {
-                        toRecACK.put(p, System.nanoTime());
+                        ArrayList<Long> retransmits =
+                                toRecAckProcess.get(p.getDestId()-1).getOrDefault(p, new ArrayList<>());
+                        sendStringWithRet = sendString + ",r" + retransmits.size();
+                        retransmits.add(System.nanoTime());
+                        toRecAckProcess.get(p.getDestId()-1).put(p, retransmits);
                         numOutstanding++;
                         //System.out.println(numOutstanding);
                     }
+                    //System.out.println("Sending " + sendString + " to " + p.getDestId() + " in send");
+                    byte[] sendBuf = sendStringWithRet.getBytes();
                     DatagramPacket dpSend =
                             new DatagramPacket(sendBuf, sendBuf.length, destIp, destPort);
                     sendOnSocket(dpSend);
@@ -128,36 +140,111 @@ public class PerfectLink {
     }
 
     private class ACKChecker extends Thread {
-        Long timeout = 10L*((long) Math.pow(10, 9));
+        boolean[] recFirst;
+        Long timeout;
+        Long[] RTTs;
+        Long[] RTTd;
+        Long[] RTO;
+        Double alpha;
+        Double beta;
+        int[] recNoneCount;
+        public ACKChecker() {
+            recFirst = new boolean[hosts.size()];
+            Arrays.fill(recFirst, false);
+            timeout = 100L*((long) Math.pow(10, 6));
+            RTTs = new Long[hosts.size()];
+            RTTd = new Long[hosts.size()];
+            RTO = new Long[hosts.size()];
+            recNoneCount = new int[hosts.size()];
+            Arrays.fill(RTO, timeout);
+            alpha = 1.0/8.0;
+            beta = 1.0/4.0;
+        }
         @Override
         public void run() {
             while (true) {
-                Packet recAck = null;
+                PacketTimeRnum recAck = null;
                 try {
                     recAck = recACKs.poll(timeout, TimeUnit.NANOSECONDS);
                 } catch (InterruptedException ignored) {
                 }
+                boolean[] recSome = new boolean[hosts.size()];
                 if (recAck!=null) {
-                    List<Packet> newAcks = new LinkedList<>();
+                    List<PacketTimeRnum> newAcks = new LinkedList<>();
                     newAcks.add(recAck);
                     recACKs.drainTo(newAcks);
-                    synchronized (lock) {
-                        //toRecACK.remove(recAck);
-                        numOutstanding-=newAcks.size();
-                        if (numOutstanding==outLimit/2)
-                            outLimit/=2;
-                        toRecACK.keySet().removeAll(newAcks);
+                    Arrays.fill(recSome, false);
+                    //System.out.println("Received ACKs: " + newAcks);
+                    for (PacketTimeRnum pt: newAcks) {
+                        //System.out.println("Processing " + pt);
+                        //System.out.println("toReckAckProcess: " + toRecAckProcess);
+                        int pid = pt.getPacket().getDestId();
+                        recSome[pid-1] = true;
+                        recNoneCount[pid-1] = 0;
+                        if (!toRecAckProcess.get(pid-1).containsKey(pt.getPacket()) ||
+                                pt.getrNum() >= toRecAckProcess.get(pid-1).get(pt.getPacket()).size())
+                            continue;
+                        long RTTm;
+                        synchronized (lock) {
+                            HashMap<Packet, ArrayList<Long>> toRecACK = toRecAckProcess.get(pid-1);
+                            RTTm = pt.getTimeRec() - toRecACK.get(pt.getPacket()).get(pt.getrNum());
+                            //System.out.println("RTT: " + RTTm/Math.pow(10, 6) + " ms");
+//                            if (RTTm <= 0) {
+//                                System.out.println("Map: " + toRecAckProcess);
+//                                System.out.println("Sended at: " + toRecAckProcess.get(pid-1).get(pt.getPacket()));
+//                                System.out.println("Received at: " + pt.getTimeRec());
+//                            }
+                            toRecACK.remove(pt.getPacket());
+                            toRecAckProcess.set(pid-1, toRecACK);
+                            numOutstanding-=1;
+                            if (numOutstanding==outLimit/2)
+                                outLimit/=2;
+                        }
+                        if (!recFirst[pid-1]) {
+                            RTTs[pid-1] = RTTm;
+                            RTTd[pid-1] = RTTm/2;
+                            recFirst[pid-1] = true;
+                        }
+                        else {
+                            RTTs[pid-1] = new Double((1-alpha)*RTTs[pid-1] + alpha*RTTm).longValue();
+                            RTTd[pid-1] = new Double((1-beta)*RTTd[pid-1]
+                                                            + beta * Math.abs(RTTm - RTTs[pid-1])).longValue();
+                        }
+                        RTO[pid-1] = RTTs[pid-1] + 4*RTTd[pid-1];
                     }
                 }
                 LinkedList<Packet> toAck;
                 Long now = System.nanoTime();
+                for (int i = 0; i<hosts.size(); i++) {
+                    if(!recSome[i]) {
+                        recNoneCount[i] += 1;
+                        if (recNoneCount[i] >= hosts.size()) {
+                            recNoneCount[i] = 0;
+                            RTO[i] = Math.min(RTO[i]*2, 60L*((long) Math.pow(10, 9)));
+                        }
+                    }
+                }
+                timeout = Collections.min(Arrays.asList(RTO));
+                System.out.println("New RTOs:");
+                for (int i = 0; i<hosts.size(); i++) {
+                    int pid = i+1;
+                    System.out.println("PID: " + pid + " RTO: " + RTO[i]/Math.pow(10, 6) + " ms");
+                }
+                System.out.println("New lower bound timeout: " + timeout/Math.pow(10, 6) + " ms");
                 synchronized (lock) {
-                    toAck =
-                        toRecACK.entrySet().stream()
-                        .filter(x -> now - x.getValue() >= timeout)
-                        .map(Map.Entry::getKey)
-                        .filter(p -> !messageToSend.contains(p))
-                        .collect(Collectors.toCollection(LinkedList::new));
+                    toAck = new LinkedList<>();
+                    for (int pid = 1; pid<=hosts.size(); pid++) {
+                        if (pid==id)
+                            continue;
+                        int finalPid = pid;
+                        LinkedList<Packet> toSendPid =
+                                toRecAckProcess.get(pid-1).entrySet().stream()
+                                .filter(x -> now - x.getValue().get(x.getValue().size()-1) >= RTO[finalPid -1])
+                                .map(Map.Entry::getKey)
+                                .filter(p -> !messageToSend.contains(p))
+                                .collect(Collectors.toCollection(LinkedList::new));
+                        toAck.addAll(toSendPid);
+                    }
                 }
                 if (!toAck.isEmpty())
                     messageToSend.addAll(toAck);
@@ -169,13 +256,13 @@ public class PerfectLink {
         new ACKChecker().start();
     }
 
-    private void sendACK(DatagramPacket dpRec, String sRec) {
+    private void sendACK(DatagramPacket dpRec, String sRec, String rNum) {
         String sendString;
         byte[] sendBuf;
         InetAddress destIp = dpRec.getAddress();
         int pid = Integer.parseInt(sRec.split(" ")[0]);
         int destPort = portMap.get(pid);
-        sendString = String.format("ACK %d:%s", id, sRec);
+        sendString = String.format("ACK %d %s:%s", id, rNum, sRec);
         sendBuf = sendString.getBytes();
         DatagramPacket dpSend =
                 new DatagramPacket(sendBuf, sendBuf.length, destIp, destPort);
@@ -192,28 +279,34 @@ public class PerfectLink {
             while (true) {
                 dpRec = new DatagramPacket(recBuf, recBuf.length);
                 recOnSocket(dpRec);
+                Long now = System.nanoTime();
                 String sRec = new String(trim(recBuf), StandardCharsets.UTF_8);
                 if (!sRec.contains("ACK")) {
+                    String[] messAndResend = sRec.split(",");
+                    //System.out.println("Received " + Arrays.asList(messAndResend) + " in receive no ACK");
                     //System.out.println("Received " + sRec + " in receive");
-                    if (!recMessage.contains(sRec)) {
-                        recMessage.add(sRec);
+                    if (!recMessage.contains(messAndResend[0])) {
+                        recMessage.add(messAndResend[0]);
                         try {
-                            messageToDeliver.put(sRec);
+                            messageToDeliver.put(messAndResend[0]);
                         } catch (InterruptedException e) {
                             System.out.println("Exception trying to deliver a message in PF " + e.toString());
                         }
                     }
-                    sendACK(dpRec, sRec);
+                    sendACK(dpRec, messAndResend[0], messAndResend[1]);
                 }
                 else{
-                    //System.out.println("Received " + sRec + " in receive");
+                    //System.out.println("Received " + sRec + " in receive with ACK");
                     String[] ackedPack = sRec.split(":");
-                    int pid = Integer.parseInt(ackedPack[0].replace("ACK ", ""));
+                    String[] packInfo = ackedPack[0].split(" ");
+                    int pid = Integer.parseInt(packInfo[1]);
+                    int rNum = Integer.parseInt(packInfo[2].replace("r", ""));
                     InetAddress address = dpRec.getAddress();
                     int port = portMap.get(pid);
                     Packet p = new Packet(ackedPack[1], address, port, pid);
+                    //System.out.println("pid: " + pid + " rNum: " + rNum);
                     try {
-                        recACKs.put(p);
+                        recACKs.put(new PacketTimeRnum(p, now, rNum));
                     } catch (InterruptedException e) {
                         System.out.println("Exception trying to put an ACK in the queue " + e.toString());
                     }
@@ -269,9 +362,6 @@ public class PerfectLink {
         return sentMessage;
     }
 
-    public static HashMap<Packet, Long> getToRecACK() {
-        return toRecACK;
-    }
 
     @Override
     public boolean equals(Object o) {

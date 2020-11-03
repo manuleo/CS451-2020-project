@@ -36,6 +36,7 @@ class FinishedSignal:
             pid = pid_timestamp[0]
             ts = pid_timestamp[1]
             self.endTimes[pid] = ts
+        self.sock.close()
 
     def endTimestamps(self):
         return self.endTimes

@@ -52,8 +52,8 @@ public class Packet {
     public String toString() {
         return "Packet{" +
                 "message='" + message + '\'' +
-                ", destIp=" + destIp +
-                ", destPort=" + destPort +
+                //", destIp=" + destIp +
+                //", destPort=" + destPort +
                 ", destId=" + destId +
                 '}';
     }
