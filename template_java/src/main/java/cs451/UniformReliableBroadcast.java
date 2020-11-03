@@ -11,7 +11,7 @@ public class UniformReliableBroadcast {
     private final PerfectLink pf;
     private HashSet<String> delivered = new HashSet<>();
     private HashSet<String> pending = new HashSet<>();
-    private HashMap<String, Integer> ack = new HashMap<>();
+    static HashMap<String, Integer> ack = new HashMap<>();
     private final List<Host> hosts;
     private final int id;
     private final int minCorrect;
@@ -53,7 +53,7 @@ public class UniformReliableBroadcast {
                 List<String> sentMessages = new LinkedList<>();
                 sentMessages.add(message);
                 try {
-                    Thread.sleep(200);
+                    Thread.sleep(50);
                 } catch (InterruptedException e) {
                     System.out.println("Sleeping in URB error: " + e.toString());
                 }
@@ -113,11 +113,11 @@ public class UniformReliableBroadcast {
                 }
                 List<String> gotPacks = new LinkedList<>();
                 gotPacks.add(got);
-                try {
-                    Thread.sleep(0);
-                } catch (InterruptedException e) {
-                    System.out.println("Sleeping in URB deliver: " + e.toString());
-                }
+//                try {
+//                    Thread.sleep(0);
+//                } catch (InterruptedException e) {
+//                    System.out.println("Sleeping in URB deliver: " + e.toString());
+//                }
                 messageDeliveredDown.drainTo(gotPacks);
                 for (String gotPack: gotPacks) {
                     String[] gotSplit = gotPack.split(" ");

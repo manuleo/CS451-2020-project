@@ -38,6 +38,8 @@ public class Main {
             System.out.println("Impossible to write " + e.toString());
         }
 
+        System.out.println(UniformReliableBroadcast.ack);
+
     }
 
     private static void initSignalHandlers() {
@@ -82,6 +84,7 @@ public class Main {
 
         System.out.println("Broadcasting messages...");
         FIFOBroadcast(parser);
+        //testUniformReliableBroadcast(parser);
 
 //        System.out.println("Signaling end of broadcasting messages");
 //        coordinator.finishedBroadcasting();
@@ -146,32 +149,77 @@ public class Main {
 //            beb.broadcast(String.valueOf(i));
 //    }
 
-//    private static void testUniformReliableBroadcast(Parser parser) throws InterruptedException {
-//        LinkedBlockingQueue<String> messageToSend = new LinkedBlockingQueue<>();
-//        LinkedBlockingQueue<String> messageDelivered = new LinkedBlockingQueue<>();
-//        UniformReliableBroadcast urb = new UniformReliableBroadcast(parser.hosts(), parser.myId(),
-//                messageToSend, messageDelivered);
-//        class TestDeliver extends Thread {
-//            @Override
-//            public void run() {
-//                while (true) {
-//                    String gotPack = null;
-//                    try {
-//                        gotPack = messageDelivered.take();
-//                    } catch (InterruptedException e) {
-//                        System.out.println("Getting message in main error: " + e.toString());
+    private static void testUniformReliableBroadcast(Parser parser) throws InterruptedException {
+        UniformReliableBroadcast urb = new UniformReliableBroadcast(parser.hosts(), parser.myId(), messageToSend, messageDelivered);
+        class Deliver extends Thread {
+            @Override
+            public void run() {
+                while (true) {
+                    String gotPack = null;
+                    try {
+                        gotPack = messageDelivered.take();
+                        //System.out.println("Got: " + gotPack);
+                    } catch (InterruptedException e) {
+                        System.out.println("Getting message in main error: " + e.toString());
+                    }
+                    List<String> newGot = new LinkedList<>();
+                    newGot.add(gotPack);
+//                    synchronized (lockOut) {
+//                        out.add("d " + gotPack);
 //                    }
 //                    recPack.add(gotPack);
-//                    if (recPack.size()%100==0)
-//                        System.out.println(recPack.size());
-//                }
-//            }
-//        }
-//        new TestDeliver().start();
-//        for (int i = 0; i<5; i++) {
-//            messageToSend.put(String.valueOf(i));
-//        }
-//    }
+//                    try {
+//                        Thread.sleep(0);
+//                    } catch (InterruptedException e) {
+//                        System.out.println("Sleeping in main error: " + e.toString());
+//                    }
+                    messageDelivered.drainTo(newGot);
+                    //System.out.println("Received in main: " + newGssot);
+                    synchronized (lockOut) {
+                        for (String got: newGot)
+                            out.add("d " + got);
+                    }
+                    recPack.addAll(newGot);
+                    if (recPack.size()%100==0)
+                        System.out.println("Delivered " + recPack.size() + " packets");
+                    if (recPack.size() == parser.hosts().size() * m) {
+                        System.out.println("Received everything from everyone.");
+                        return;
+                    }
+                }
+            }
+        }
+        class Send extends Thread {
+            final int m;
+            public Send(int m) {
+                this.m = m;
+            }
+            @Override
+            public void run() {
+                for (int i = 1; i<=m; i++) {
+                    try {
+                        messageToSend.put(String.valueOf(i));
+                    } catch (InterruptedException e) {
+                        System.out.println("Sending message in main error: " + e.toString());
+                    }
+                    synchronized (lockOut) {
+                        out.add("b " + i);
+                    }
+                    broadcasted.add(parser.myId() + " " + i);
+                }
+            }
+        }
+        Deliver deliver = new Deliver();
+        Send send = new Send(m);
+        deliver.start();
+        send.start();
+        try {
+            send.join();
+            deliver.join();
+        } catch (InterruptedException e) {
+            System.out.println("Error while waiting in main: " + e.toString());
+        }
+    }
 
 //    private static void testFIFO(Parser parser) throws InterruptedException {
 //        LinkedBlockingQueue<String> messageToSend = new LinkedBlockingQueue<>();
