@@ -127,7 +127,33 @@ public class PerfectLink {
                             recMine = true;
                         }
                     }
-                    //TODO: try to add some sort of "flow control" to avoid this thread to overcome the others
+                    /*
+                    TODO: try to add some sort of "flow control":
+                     Need to add a "sliding window" for each process. How to add it?
+                     1. Use numOutstanding by process and ThreadPool to send to each process.
+                        Also, count the number of acks received for the window and tell FIFO when can send
+                        the next batch (i.e. > n/2 ack all packets inside the batch)
+                     2. At FIFO level, send packets only when acked all the packets inside the batch,
+                        no limits at PL level...but URB packets will overcome...NOT DOABLE
+                     3. Sliding window at PL level (like TCP)? Number all the packets from the queue at TCP level
+                        and move the window when correctly received the ACKs (in order delivery? No).
+                        A sliding window is helpless for the URB, whenever an ack arrive we can move it by one,
+                        we don't need to receive all before BUT it's useful for FIFO: we don't send the 10th mess
+                        if we didn't receive the ACK for 1..9 -> 2 windows? We can use the packet (it's build at URB,
+                        we know which kind of message we are sending) to build such abstraction.
+                        At PL we can build it too (depending on message size i.e. 2 or 3 fields)
+                        Problems:
+                                  1. what to do when URB add packets? May delay a lot the packets from FIFO.
+                                  Hold both for 1 and 3...
+                                  Maybe we can solve this problem by having the same "indication to continue"
+                                  mechanism both for FIFO and URB, so that no one of the two class has too
+                                  many outstanding packets
+                                  2. Dead processes? Add all the packets we can't send in the queue in toRecAck
+                                  (can happen? we limit both FIFO and URB...) so that we avoid flooding the queue again
+                                  and the large timeout will avoid to send them again...
+                     Summary: Need 2 sliding window at TCP level + indications to both FIFO and URB
+                              (or do two different PL instances keeping different infos)
+                     */
                 }
             }
         }
@@ -219,6 +245,7 @@ public class PerfectLink {
                         recNoneCount[i] += 1;
                         if (recNoneCount[i] >= hosts.size()) {
                             recNoneCount[i] = 0;
+                            // TODO: try to remove this limit and see what happens
                             RTO[i] = Math.min(RTO[i]*2, 60L*((long) Math.pow(10, 9)));
                         }
                     }
