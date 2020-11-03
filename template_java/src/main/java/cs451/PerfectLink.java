@@ -24,7 +24,6 @@ public class PerfectLink {
     private ArrayList<HashMap<Packet, ArrayList<Long>>> toRecAckProcess;
     private static final HashSet<String> recMessage = new HashSet<>();
     private static final HashSet<String> sentMessage = new HashSet<>();
-    //private static final HashMap<Packet, Long> toRecACK = new HashMap<>();
     private static final Object lock = new Object();
 
 
@@ -91,7 +90,7 @@ public class PerfectLink {
                             synchronized (lock) {
                                 outLimit*=2;
                             }
-                           // System.out.println(outLimit);
+                           //System.out.println(outLimit);
                         }
                         //System.out.println("Busy waiting");
                         try {
@@ -151,7 +150,7 @@ public class PerfectLink {
         public ACKChecker() {
             recFirst = new boolean[hosts.size()];
             Arrays.fill(recFirst, false);
-            timeout = 100L*((long) Math.pow(10, 6));
+            timeout = 1000L*((long) Math.pow(10, 6));
             RTTs = new Long[hosts.size()];
             RTTd = new Long[hosts.size()];
             RTO = new Long[hosts.size()];
@@ -225,12 +224,12 @@ public class PerfectLink {
                     }
                 }
                 timeout = Collections.min(Arrays.asList(RTO));
-                System.out.println("New RTOs:");
-                for (int i = 0; i<hosts.size(); i++) {
-                    int pid = i+1;
-                    System.out.println("PID: " + pid + " RTO: " + RTO[i]/Math.pow(10, 6) + " ms");
-                }
-                System.out.println("New lower bound timeout: " + timeout/Math.pow(10, 6) + " ms");
+//                System.out.println("New RTOs:");
+//                for (int i = 0; i<hosts.size(); i++) {
+//                    int pid = i+1;
+//                    System.out.println("PID: " + pid + " RTO: " + RTO[i]/Math.pow(10, 6) + " ms");
+//                }
+//                System.out.println("New lower bound timeout: " + timeout/Math.pow(10, 6) + " ms");
                 synchronized (lock) {
                     toAck = new LinkedList<>();
                     for (int pid = 1; pid<=hosts.size(); pid++) {
