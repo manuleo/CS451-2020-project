@@ -1,28 +1,38 @@
 package cs451;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Objects;
 
 public class Window {
     private int lowerBound;
     private int upperBound;
-    private boolean[] ackPack;
+    private ArrayList<Boolean> ackPack;
+    private int threshold = Constants.INIT_THRESH;
 
     public Window(int windowSize) {
         this.lowerBound = 1;
         this.upperBound = windowSize;
-        this.ackPack = new boolean[windowSize];
-        Arrays.fill(this.ackPack, false);
+        this.ackPack = new ArrayList<>(windowSize);
+        for (int i = 0; i < upperBound; i++)
+            ackPack.add(false);
     }
 
     public boolean canSend(Packet p) {
         int lsn = Integer.parseInt(p.getMessage().split(" ")[1]);
-        return lsn >= lowerBound && lsn <= upperBound && !ackPack[lsn - lowerBound];
+        return lsn >= lowerBound && lsn <= upperBound && !ackPack.get(lsn - lowerBound);
+    }
+
+    public boolean alreadyAck(Packet p) {
+        int lsn = Integer.parseInt(p.getMessage().split(" ")[1]);
+        if (lsn > upperBound)
+            return false;
+        return lsn < lowerBound || !ackPack.get(lsn-lowerBound);
     }
 
     public void markPacket(Packet p) {
         int lsn = Integer.parseInt(p.getMessage().split(" ")[1]);
         assert (lsn - lowerBound >=0);
-        ackPack[lsn - lowerBound] = true;
+        ackPack.set(lsn - lowerBound, true);
         moveWindow();
     }
 
@@ -38,11 +48,35 @@ public class Window {
             lowerBound += numAck;
             upperBound += numAck;
             if (numAck >= 0) {
-                System.arraycopy(ackPack, numAck, ackPack, 0, ackPack.length - numAck);
-                for (int i = ackPack.length - numAck; i < ackPack.length; i++)
-                    ackPack[i] = false;
+                ackPack.subList(0, numAck).clear();
+                for (int i = 0; i < numAck; i++)
+                    ackPack.add(false);
             }
         }
+    }
+
+    public void increaseSize() {
+        if ((upperBound - lowerBound + 1)>=threshold) {
+            if (upperBound - lowerBound + 1 == ackPack.size())
+                ackPack.add(false);
+            upperBound++;
+        }
+        else {
+            int toAdd = Math.max(2 * (upperBound - lowerBound + 1) - ackPack.size(), 0);
+            upperBound += upperBound - lowerBound + 1;
+            for (int i = 0; i < toAdd; i++)
+                ackPack.add(false);
+        }
+    }
+
+    public void timeoutStart() {
+        threshold = Math.max((upperBound - lowerBound)/2, 1);
+        upperBound = lowerBound;
+    }
+
+    public void dupAck() {
+        threshold = Math.max((upperBound - lowerBound)/2, 1);
+        upperBound = lowerBound + threshold - 1;
     }
 
     @Override
@@ -52,14 +86,12 @@ public class Window {
         Window window = (Window) o;
         return lowerBound == window.lowerBound &&
                 upperBound == window.upperBound &&
-                Arrays.equals(ackPack, window.ackPack);
+                ackPack.equals(window.ackPack);
     }
 
     @Override
     public int hashCode() {
-        int result = Objects.hash(lowerBound, upperBound);
-        result = 31 * result + Arrays.hashCode(ackPack);
-        return result;
+        return Objects.hash(lowerBound, upperBound, ackPack, threshold);
     }
 
     @Override
@@ -67,7 +99,8 @@ public class Window {
         return "Window{" +
                 "lowerBound=" + lowerBound +
                 ", upperBound=" + upperBound +
-                //", ackPack=" + Arrays.toString(ackPack) +
+                //", ackPack=" + ackPack +
+                ", threshold=" + threshold +
                 '}';
     }
 
