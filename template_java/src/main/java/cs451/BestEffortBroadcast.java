@@ -60,7 +60,7 @@ public class BestEffortBroadcast {
                     List<Packet> packets = messages.stream().map(m ->
                     {
                         try {
-                            return new Packet(m,InetAddress.getByName(h.getIp()), h.getPort(), h.getId());
+                            return new Packet(m,InetAddress.getByName(h.getIp()), h.getPort(), h.getId(), Packet.packType.FIFO);
                         } catch (UnknownHostException e) {
                             return null;
                         }

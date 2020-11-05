@@ -15,9 +15,9 @@ public class Main {
     protected static Coordinator coordinator;
     protected static int m;
     private static LinkedList<String> recPack = new LinkedList<>();
-    private static LinkedList<String> out = new LinkedList<>();
+    protected static LinkedList<String> out = new LinkedList<>();
     private static String outName;
-    private static final Object lockOut = new Object();
+    protected static final Object lockOut = new Object();
 
     private static void handleSignal() {
         //immediately stop network packet processing
@@ -189,32 +189,32 @@ public class Main {
                 }
             }
         }
-        class Send extends Thread {
-            final int m;
-            public Send(int m) {
-                this.m = m;
-            }
-            @Override
-            public void run() {
-                for (int i = 1; i<=m; i++) {
-                    try {
-                        messageToSend.put(String.valueOf(i));
-                    } catch (InterruptedException e) {
-                        System.out.println("Sending message in main error: " + e.toString());
-                    }
-                    synchronized (lockOut) {
-                        out.add("b " + i);
-                    }
-                    broadcasted.add(parser.myId() + " " + i);
-                }
-            }
-        }
+//        class Send extends Thread {
+//            final int m;
+//            public Send(int m) {
+//                this.m = m;
+//            }
+//            @Override
+//            public void run() {
+//                for (int i = 1; i<=m; i++) {
+//                    try {
+//                        messageToSend.put(String.valueOf(i));
+//                    } catch (InterruptedException e) {
+//                        System.out.println("Sending message in main error: " + e.toString());
+//                    }
+//                    synchronized (lockOut) {
+//                        out.add("b " + i);
+//                    }
+//                    broadcasted.add(parser.myId() + " " + i);
+//                }
+//            }
+//        }
         Deliver deliver = new Deliver();
-        Send send = new Send(m);
+//        Send send = new Send(m);
         deliver.start();
-        send.start();
+//        send.start();
         try {
-            send.join();
+//            send.join();
             deliver.join();
         } catch (InterruptedException e) {
             System.out.println("Error while waiting in main: " + e.toString());
@@ -289,32 +289,32 @@ public class Main {
                 }
             }
         }
-        class Send extends Thread {
-            final int m;
-            public Send(int m) {
-                this.m = m;
-            }
-            @Override
-            public void run() {
-                for (int i = 1; i<=m; i++) {
-                    try {
-                        messageToSend.put(String.valueOf(i));
-                    } catch (InterruptedException e) {
-                        System.out.println("Sending message in main error: " + e.toString());
-                    }
-                    synchronized (lockOut) {
-                        out.add("b " + i);
-                    }
-                    broadcasted.add(parser.myId() + " " + i);
-                }
-            }
-        }
+//        class Send extends Thread {
+//            final int m;
+//            public Send(int m) {
+//                this.m = m;
+//            }
+//            @Override
+//            public void run() {
+//                for (int i = 1; i<=m; i++) {
+//                    try {
+//                        messageToSend.put(String.valueOf(i));
+//                    } catch (InterruptedException e) {
+//                        System.out.println("Sending message in main error: " + e.toString());
+//                    }
+//                    synchronized (lockOut) {
+//                        out.add("b " + i);
+//                    }
+//                    broadcasted.add(parser.myId() + " " + i);
+//                }
+//            }
+//        }
         Deliver deliver = new Deliver();
-        Send send = new Send(m);
+//        Send send = new Send(m);
         deliver.start();
-        send.start();
+//        send.start();
         try {
-            send.join();
+//            send.join();
             deliver.join();
         } catch (InterruptedException e) {
             System.out.println("Error while waiting in main: " + e.toString());

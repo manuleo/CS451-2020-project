@@ -8,12 +8,15 @@ public class Packet {
     private InetAddress destIp;
     private int destPort;
     private int destId;
+    private packType type;
+    protected enum packType {FIFO, URB};
 
-    public Packet(String message, InetAddress destIp, int destPort, int destId) {
+    public Packet(String message, InetAddress destIp, int destPort, int destId, packType type) {
         this.message = message;
         this.destIp = destIp;
         this.destPort = destPort;
         this.destId = destId;
+        this.type = type;
     }
 
     public InetAddress getDestIp() {
@@ -32,6 +35,10 @@ public class Packet {
         return message;
     }
 
+    public packType getType() {
+        return type;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -40,21 +47,23 @@ public class Packet {
         return destPort == packet.destPort &&
                 destId == packet.destId &&
                 message.equals(packet.message) &&
-                destIp.equals(packet.destIp);
+                destIp.equals(packet.destIp) &&
+                type == packet.type;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(message, destIp, destPort, destId);
+        return Objects.hash(message, destIp, destPort, destId, type);
     }
 
     @Override
     public String toString() {
         return "Packet{" +
                 "message='" + message + '\'' +
-                //", destIp=" + destIp +
-                //", destPort=" + destPort +
+//                ", destIp=" + destIp +
+//                ", destPort=" + destPort +
                 ", destId=" + destId +
+                ", type=" + type +
                 '}';
     }
 }

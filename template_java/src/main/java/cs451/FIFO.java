@@ -9,10 +9,12 @@ public class FIFO {
     private int lsn = 0;
     private HashMap<Integer, HashSet<String>> pending = new HashMap<>();
     private int[] seqNums;
+    protected static int windowLimit = Constants.WINDOW_SIZE;
     private LinkedBlockingQueue<String> messageToSendDown;
     private LinkedBlockingQueue<String> messageToSendUp;
     private LinkedBlockingQueue<String> messageDeliveredDown;
     private LinkedBlockingQueue<String> messageToDeliverUp;
+    protected static final Object lockSending = new Object();
 
     public FIFO(List<Host> hosts, int id, LinkedBlockingQueue<String> messageToSendUp,
                 LinkedBlockingQueue<String> messageToDeliverUp) {
@@ -32,28 +34,53 @@ public class FIFO {
 
         @Override
         public void run() {
-            while(true) {
-                String message = null;
-                try {
-                    message = messageToSendUp.take();
-                } catch (InterruptedException e) {
-                    System.out.println("Getting message in FIFO error: " + e.toString());
+            // TODO: possible optimization: move this logic to URB
+            int i = 1;
+            while(i<=Main.m) {
+                synchronized (lockSending) {
+                    while(i==windowLimit+1) {
+                        try {
+                            lockSending.wait();
+                        } catch (InterruptedException e) {
+                            System.out.println("Interrupted FIFO waiting: " + e.toString());
+                        }
+                    }
+                    try {
+                        messageToSendDown.put(String.valueOf(i));
+                    } catch (InterruptedException e) {
+                        System.out.println("Sending message in main error: " + e.toString());
+                    }
+                    synchronized (Main.lockOut) {
+                        Main.out.add("b " + i);
+                        //System.out.println("Broadcasted: " + Main.out);
+                    }
+                    Main.broadcasted.add(id + " " + i);
+                    //System.out.println("Broadcasted set: " + Main.broadcasted);
+                    i++;
                 }
-                List<String> messages = new LinkedList<>();
-                messages.add(message);
-                try {
-                    Thread.sleep(50);
-                } catch (InterruptedException e) {
-                    System.out.println("Sleeping in FIFO error: " + e.toString());
-                }
-                messageToSendUp.drainTo(messages);
-                lsn += messages.size();
-                // The message carries only the sequence number
-                //System.out.println("Message to send: " + message);
-                //System.out.println("Sequence number: " + lsn);
-                //System.out.println("I'm sending" + messages);
-                messageToSendDown.addAll(messages);
             }
+//            while(true) {
+//                String message = null;
+//                try {
+//                    message = messageToSendUp.take();
+//                } catch (InterruptedException e) {
+//                    System.out.println("Getting message in FIFO error: " + e.toString());
+//                }
+//                List<String> messages = new LinkedList<>();
+//                messages.add(message);
+//                try {
+//                    Thread.sleep(50);
+//                } catch (InterruptedException e) {
+//                    System.out.println("Sleeping in FIFO error: " + e.toString());
+//                }
+//                messageToSendUp.drainTo(messages);
+//                lsn += messages.size();
+//                // The message carries only the sequence number
+//                //System.out.println("Message to send: " + message);
+//                //System.out.println("Sequence number: " + lsn);
+//                //System.out.println("I'm sending" + messages);
+//                messageToSendDown.addAll(messages);
+//            }
         }
     }
 

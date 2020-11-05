@@ -27,4 +27,7 @@ public class Constants {
 
     // indexes for config
     public static final int CONFIG_VALUE = 10;
+
+    // window size for flow control
+    public static final int WINDOW_SIZE = 200;
 }

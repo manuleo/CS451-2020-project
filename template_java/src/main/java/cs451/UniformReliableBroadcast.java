@@ -68,12 +68,12 @@ public class UniformReliableBroadcast {
                     for (String sentMessage: sentMessages)
                             ack.put(sentMessage, 1);
                 }
-                send(sentMessages);
+                send(sentMessages, Packet.packType.FIFO);
             }
         }
     }
 
-    public void send(List<String> messagesToSend) {
+    public void send(List<String> messagesToSend, Packet.packType type) {
         for (Host h: hosts) {
             if (id == h.getId()) {
                 continue;
@@ -81,7 +81,7 @@ public class UniformReliableBroadcast {
             List<Packet> packets = messagesToSend.stream().map(m ->
             {
                 try {
-                    return new Packet(m, InetAddress.getByName(h.getIp()), h.getPort(), h.getId());
+                    return new Packet(m, InetAddress.getByName(h.getIp()), h.getPort(), h.getId(), type);
                 } catch (UnknownHostException e) {
                     return null;
                 }
@@ -165,7 +165,7 @@ public class UniformReliableBroadcast {
                     delivered.addAll(deliverable);
                     messageToDeliverUp.addAll(deliverable);
                 }
-                send(messagesToSend);
+                send(messagesToSend, Packet.packType.URB);
             }
         }
     }
