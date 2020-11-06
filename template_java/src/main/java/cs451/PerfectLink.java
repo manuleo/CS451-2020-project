@@ -23,7 +23,8 @@ public class PerfectLink {
     private ArrayList<Packet> packetToSendURB = new ArrayList<>();
     private HashMap<Integer, Window> windowFIFO = new HashMap<>();
     private HashMap<Integer, Window> windowURB = new HashMap<>();
-    private HashMap<Packet, Integer> URBlsn = new HashMap<>();
+    private HashMap<Integer, HashMap<Packet, Integer>> URBlsn = new HashMap<>();
+    private HashMap<Integer, Integer> URBlsnCount = new HashMap<>();
     //    private HashMap<Integer, Integer> outStandingURBProcesses = new HashMap<>();
 //    private HashMap<Integer, Integer> outStandingURBThresh = new HashMap<>();
 //    private HashMap<Integer, Integer> URBWindow = new HashMap<>();
@@ -33,6 +34,7 @@ public class PerfectLink {
     private static final HashSet<String> sentMessage = new HashSet<>();
     private static final Object lock = new Object();
     private static final Object lockURB = new Object();
+    private static final Object lockFIFO = new Object();
 
 
     public PerfectLink(int id, int myPort, List<Host> hosts,
@@ -63,6 +65,9 @@ public class PerfectLink {
             portMap.put(h.getId(), h.getPort());
             toRecAckProcess.add(h.getId()-1, new HashMap<>());
             windowFIFO.put(h.getId(), new Window(Constants.WINDOW_SIZE));
+            windowURB.put(h.getId(), new Window(Constants.WINDOW_SIZE));
+            URBlsn.put(h.getId(), new HashMap<>());
+            URBlsnCount.put(h.getId(), 0);
 //            outStandingURBProcesses.put(h.getId(), 0);
 //            outStandingURBThresh.put(h.getId(), Constants.INIT_THRESH);
 //            URBWindow.put(h.getId(), Constants.WINDOW_SIZE);
@@ -81,15 +86,17 @@ public class PerfectLink {
                 ArrayList<Packet> pToSend = new ArrayList<>();
                 Packet p1 = null;
                 try {
-                    p1 = messageToSend.poll(100, TimeUnit.MILLISECONDS);
-                } catch (InterruptedException ignored) {}
+                    p1 = messageToSend.poll(1, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    System.out.println("Interrupted exception PF");
+                }
                 if (p1!=null) {
                     pToSend.add(p1);
-                    try {
-                        Thread.sleep(50);
-                    } catch (InterruptedException e) {
-                        System.out.println("Sleeping to create batch in PF link error: " + e.toString());
-                    }
+//                    try {
+//                        Thread.sleep(50);
+//                    } catch (InterruptedException e) {
+//                        System.out.println("Sleeping to create batch in PF link error: " + e.toString());
+//                    }
                     messageToSend.drainTo(pToSend);
                     pToSend.forEach(p -> {
                         if (p.getType() == Packet.packType.FIFO) {
@@ -101,51 +108,67 @@ public class PerfectLink {
                         }
                     });
                 }
-                System.out.println("Packet to send FIFO: " + packetToSendFIFO.size());
-                System.out.println("FIFO window: " + windowFIFO);
+//                System.out.println("Packet to send FIFO: " + packetToSendFIFO.size());
+//                System.out.println("FIFO window: " + windowFIFO);
+//                Long timestart = System.nanoTime();
                 for(Iterator<Packet> itFIFO = packetToSendFIFO.iterator(); itFIFO.hasNext();) {
                     Packet pFIFO = itFIFO.next();
                     //System.out.println("Processing: " + pFIFO);
                     //System.out.println("Window: " + windowProcess.get(pFIFO.getDestId()));
-                    if (!windowFIFO.get(pFIFO.getDestId()).canSend(pFIFO)) {
-                        if (windowFIFO.get(pFIFO.getDestId()).alreadyAck(pFIFO))
-                            itFIFO.remove();
-                        continue;
+                    int lsn = Integer.parseInt(pFIFO.getMessage().split(" ")[1]);
+                    synchronized (lockFIFO) {
+                        if (!windowFIFO.get(pFIFO.getDestId()).canSend(lsn)) {
+                            if (windowFIFO.get(pFIFO.getDestId()).alreadyAck(lsn))
+                                itFIFO.remove();
+                            continue;
+                        }
                     }
                     sendPacket(pFIFO);
                     itFIFO.remove();
                     //System.out.println("Removed. New list: " + packetToSendFIFO);
                 }
-                System.out.println("Packet to send URB: " + packetToSendURB.size());
-                System.out.println("URB outstanding: " + outStandingURBProcesses);
-                System.out.println("URB window: " + URBWindow);
+//                System.out.println("Time needed to send FIFO: " + (System.nanoTime() - timestart)/Math.pow(10, 6) + " ms");
+//                System.out.println("Packet to send URB: " + packetToSendURB.size());
+//                System.out.println("URB outstanding: " + outStandingURBProcesses);
+//                System.out.println("URB window: " + URBWindow);
+//                System.out.println("URB window: " + windowURB);
+                //System.out.println("URB lsns: " + URBlsn);
+                //System.out.println("URB lsn count: " + URBlsnCount);
+//                timestart = System.nanoTime();
                 for(Iterator<Packet> itURB = packetToSendURB.iterator(); itURB.hasNext();) {
                     Packet pURB = itURB.next();
-                    if(outStandingURBProcesses.get(pURB.getDestId()) >= URBWindow.get(pURB.getDestId()))
-                        continue;
+                    int lsn;
                     synchronized (lockURB) {
-                        if (ackedURB.contains(pURB)) {
-                            itURB.remove();
+                        HashMap<Packet, Integer> lsnProcess = URBlsn.get(pURB.getDestId());
+                        if (lsnProcess.containsKey(pURB))
+                            lsn = lsnProcess.get(pURB);
+                        else {
+                            lsn = URBlsnCount.get(pURB.getDestId()) + 1;
+                            lsnProcess.put(pURB, lsn);
+                            URBlsnCount.put(pURB.getDestId(), lsn);
+                            URBlsn.put(pURB.getDestId(), lsnProcess);
+                        }
+                        if (!windowURB.get(pURB.getDestId()).canSend(lsn, pURB)) {
+                            if (windowURB.get(pURB.getDestId()).alreadyAck(lsn))
+                                itURB.remove();
                             continue;
                         }
                     }
                     sendPacket(pURB);
-                    synchronized (lockURB) {
-                        outStandingURBProcesses.put(pURB.getDestId(), outStandingURBProcesses.get(pURB.getDestId())+1);
-                    }
                     itURB.remove();
                 }
-                if (!recMine) {
-                    synchronized (FIFO.lockSending) {
-                        if (FIFO.windowLimit>=Main.m) {
-                            if (sentMessage.containsAll(Main.broadcasted)) {
-                                System.out.println("Signaling end of broadcasting messages");
-                                Main.coordinator.finishedBroadcasting();
-                                recMine = true;
-                            }
-                        }
-                    }
-                }
+//                System.out.println("Time needed to send URB: " + (System.nanoTime() - timestart)/Math.pow(10, 6) + " ms");
+//                if (!recMine) {
+//                    synchronized (FIFO.lockSending) {
+//                        if (FIFO.windowLimit>=Main.m) {
+//                            if (sentMessage.containsAll(Main.broadcasted)) {
+//                                System.out.println("Signaling end of broadcasting messages");
+//                                Main.coordinator.finishedBroadcasting();
+//                                recMine = true;
+//                            }
+//                        }
+//                    }
+//                }
             }
         }
     }
@@ -188,9 +211,12 @@ public class PerfectLink {
         Long[] RTO;
         Double alpha;
         Double beta;
-        int[] recNoneCount;
+        //int[] recNoneCount;
         HashMap<Integer, HashSet<Packet>> dupAck = new HashMap<>();
         HashSet<Packet> ackedFIFO = new HashSet<>();
+        HashSet<Packet> ackedURB = new HashSet<>();
+        int[] timeoutCountURB;
+        int[] timeoutCountFIFO;
         public ACKChecker() {
             recFirst = new boolean[hosts.size()];
             Arrays.fill(recFirst, false);
@@ -198,10 +224,14 @@ public class PerfectLink {
             RTTs = new Long[hosts.size()];
             RTTd = new Long[hosts.size()];
             RTO = new Long[hosts.size()];
-            recNoneCount = new int[hosts.size()];
+            //recNoneCount = new int[hosts.size()];
             Arrays.fill(RTO, timeout);
             alpha = 1.0/8.0;
             beta = 1.0/4.0;
+            timeoutCountURB = new int[hosts.size()];
+            timeoutCountFIFO = new int[hosts.size()];
+            Arrays.fill(timeoutCountURB, 0);
+            Arrays.fill(timeoutCountFIFO, 0);
         }
         @Override
         public void run() {
@@ -210,37 +240,37 @@ public class PerfectLink {
                 try {
                     recAck = recACKs.poll(timeout, TimeUnit.NANOSECONDS);
                 } catch (InterruptedException ignored) {}
-                boolean[] recSome = new boolean[hosts.size()];
+                //boolean[] recSome = new boolean[hosts.size()];
                 if (recAck!=null) {
                     List<PacketTimeRnum> newAcks = new LinkedList<>();
                     newAcks.add(recAck);
                     recACKs.drainTo(newAcks);
-                    Arrays.fill(recSome, false);
+                    //Arrays.fill(recSome, false);
                     //System.out.println("Received ACKs: " + newAcks);
                     for (PacketTimeRnum pt: newAcks) {
 //                        System.out.println("Processing " + pt);
                         //System.out.println("toReckAckProcess: " + toRecAckProcess);
                         int pid = pt.getPacket().getDestId();
-                        recSome[pid-1] = true;
-                        recNoneCount[pid-1] = 0;
-                        if (!toRecAckProcess.get(pid-1).containsKey(pt.getPacket())
-                                || ackedURB.contains(pt.getPacket()) || ackedFIFO.contains(pt.getPacket())) {
+                        //recSome[pid-1] = true;
+                        //recNoneCount[pid-1] = 0;
+                        if (ackedURB.contains(pt.getPacket()) || ackedFIFO.contains(pt.getPacket())) {
                             HashSet<Packet> ackRec = dupAck.getOrDefault(pid, new HashSet<>());
                             if (ackRec.contains(pt.getPacket())) {
                                 if (pt.getPacket().getType() == Packet.packType.URB) {
-                                    System.out.println("Dup Ack!");
-                                    System.out.println("Window before: " + URBWindow.get(pid));
+//                                    System.out.println("Dup Ack!");
+//                                    System.out.println("Window before: " + windowURB.get(pid));
                                     synchronized (lockURB) {
-                                        reduceURBDupAck(pt.getPacket().getDestId());
+                                        windowURB.get(pid).dupAck();
                                     }
-                                    System.out.println("New window URB Ack: " + URBWindow.get(pid));
-                                    System.out.println("URB threshold Ack: " + outStandingURBThresh.get(pid));
-
+                                    //System.out.println("New window URB Ack: " + windowURB.get(pid));
                                 }
                                 else {
-                                    System.out.println("Dup Ack!");
-                                    windowFIFO.get(pid).dupAck();
-                                    System.out.println("New window FIFO Ack: " + windowFIFO.get(pid));
+//                                    System.out.println("Dup Ack!");
+//                                    System.out.println("Window before: " + windowFIFO.get(pid));
+                                    synchronized (lockFIFO) {
+                                        windowFIFO.get(pid).dupAck();
+                                    }
+//                                    System.out.println("New window FIFO Ack: " + windowFIFO.get(pid));
                                 }
                             }
                             else {
@@ -250,21 +280,20 @@ public class PerfectLink {
                             continue;
                         }
                         if (pt.getPacket().getType() == Packet.packType.URB) {
+                            ackedURB.add(pt.getPacket());
                             synchronized (lockURB) {
-                                ackedURB.add(pt.getPacket());
-                                outStandingURBProcesses.put(pid,
-                                        outStandingURBProcesses.get(pid)-1);
-//                                System.out.println("Increasing URB size");
-//                                System.out.println("URB size before: " + URBWindow.get(pt.getPacket().getDestId()));
-//                                System.out.println("URB threshold: " + outStandingURBThresh.get(pt.getPacket().getDestId()));
-                                increaseSize(pt.getPacket().getDestId());
-//                                System.out.println("New window size: " + URBWindow.get(pt.getPacket().getDestId()));
+                                int lsn = URBlsn.get(pt.getPacket().getDestId()).get(pt.getPacket());
+                                windowURB.get(pid).markPacket(lsn);
+                                windowURB.get(pid).increaseSize();
                             }
                         }
                         else {
                             ackedFIFO.add(pt.getPacket());
-                            windowFIFO.get(pid).markPacket(pt.getPacket());
-                            windowFIFO.get(pid).increaseSize();
+                            int lsn = Integer.parseInt(pt.getPacket().getMessage().split(" ")[1]);
+                            synchronized (lockFIFO) {
+                                windowFIFO.get(pid).markPacket(lsn);
+                                windowFIFO.get(pid).increaseSize();
+                            }
 //                            System.out.println("New window FIFO increase: " + windowProcess.get(pt.getPacket().getDestId()));
                         }
                         long RTTm;
@@ -287,12 +316,15 @@ public class PerfectLink {
                         RTO[pid-1] = RTTs[pid-1] + 4*RTTd[pid-1];
                     }
                     synchronized (FIFO.lockSending) {
-                        FIFO.windowLimit = Math.max(FIFO.windowLimit,
-                                windowFIFO
-                                        .values().stream()
-                                        .mapToInt(Window::getUpperBound).max().orElse(Constants.WINDOW_SIZE));
-                        System.out.println("FIFO can now send up to " + FIFO.windowLimit);
-                        FIFO.lockSending.notify();
+                        synchronized (lockFIFO) {
+                            FIFO.windowLimit = Math.max(FIFO.windowLimit,
+                                    windowFIFO
+                                            .values().stream()
+                                            .mapToInt(Window::getUpperBound).max().orElse(Constants.WINDOW_SIZE));
+                            //System.out.println("FIFO window when computing new limit: " + windowFIFO);
+                            //System.out.println("FIFO can now send up to " + FIFO.windowLimit);
+                            FIFO.lockSending.notify();
+                        }
                     }
                 }
                 LinkedList<Packet> toAck;
@@ -329,20 +361,35 @@ public class PerfectLink {
                         boolean timeoutWindow = toSendPid.stream()
                                 .map(Packet::getType)
                                 .anyMatch(packType -> packType == Packet.packType.FIFO);
-//                        System.out.println("PID: " + pid);
                         if (timeoutWindow) {
-                            windowFIFO.get(pid).timeoutStart();
-//                            System.out.println("New window FIFO timeout: " + windowProcess.get(pid));
+                            timeoutCountFIFO[pid-1]++;
+                            //System.out.println("PID: " + pid + " Timeout FIFO count: " + timeoutCountFIFO[pid-1]);
+                            if (timeoutCountFIFO[pid-1] == windowFIFO.get(pid).getWindowSize()) {
+                                timeoutCountFIFO[pid-1] = 0;
+//                                System.out.println("Timeout FIFO limit. Window before: " + windowFIFO.get(pid));
+//                                System.out.println("Packets to send: " + toSendPid.size());
+                                synchronized (lockFIFO) {
+                                    windowFIFO.get(pid).timeoutStart();
+                                }
+//                                System.out.println("New window FIFO timeout: " + windowFIFO.get(pid));
+                            }
                         }
                         boolean timeoutURB = toSendPid.stream()
                                 .map(Packet::getType)
                                 .anyMatch(packType -> packType == Packet.packType.URB);
                         if (timeoutURB) {
-                            synchronized (lockURB) {
-                                reduceURBTimeout(pid);
+                            timeoutCountURB[pid-1]++;
+//                            System.out.println("PID: " + pid + " Timeout URB count: " + timeoutCountURB[pid-1]);
+                            if (timeoutCountURB[pid-1] == windowURB.get(pid).getWindowSize()) {
+                                timeoutCountURB[pid-1] = 0;
+//                                System.out.println("Timeout URB limit. Window before: " + windowURB.get(pid));
+//                                System.out.println("Packets to send: " + toSendPid.size());
+                                synchronized (lockURB) {
+                                    windowURB.get(pid).timeoutStart();
+                                }
+//                                System.out.println("New window URB timeout: " + windowURB.get(pid));
+
                             }
-//                            System.out.println("New window URB timeout: " + outStandingURBProcesses.get(pid));
-//                            System.out.println("URB threshold timeout: " + outStandingURBThresh.get(pid));
                         }
                         toAck.addAll(toSendPid);
                     }
@@ -355,27 +402,6 @@ public class PerfectLink {
 
     public void startAckCheck() {
         new ACKChecker().start();
-    }
-
-    private void increaseSize(int pid) {
-        int windowSize = URBWindow.get(pid);
-        if (windowSize>=outStandingURBThresh.get(pid)) {
-            URBWindow.put(pid, windowSize+1);
-        }
-        else {
-            URBWindow.put(pid, windowSize*2);
-        }
-    }
-
-    private void reduceURBTimeout(int pid) {
-        outStandingURBThresh.put(pid, Math.max(URBWindow.get(pid)/2, 1));
-        URBWindow.put(pid, 1);
-    }
-
-    private void reduceURBDupAck(int pid) {
-        int newSize = Math.max(URBWindow.get(pid)/2, 1);
-        outStandingURBThresh.put(pid, newSize);
-        URBWindow.put(pid, newSize);
     }
 
     private void sendACK(DatagramPacket dpRec, String sRec, String rNum) {

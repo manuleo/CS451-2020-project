@@ -59,28 +59,8 @@ public class FIFO {
                     i++;
                 }
             }
-//            while(true) {
-//                String message = null;
-//                try {
-//                    message = messageToSendUp.take();
-//                } catch (InterruptedException e) {
-//                    System.out.println("Getting message in FIFO error: " + e.toString());
-//                }
-//                List<String> messages = new LinkedList<>();
-//                messages.add(message);
-//                try {
-//                    Thread.sleep(50);
-//                } catch (InterruptedException e) {
-//                    System.out.println("Sleeping in FIFO error: " + e.toString());
-//                }
-//                messageToSendUp.drainTo(messages);
-//                lsn += messages.size();
-//                // The message carries only the sequence number
-//                //System.out.println("Message to send: " + message);
-//                //System.out.println("Sequence number: " + lsn);
-//                //System.out.println("I'm sending" + messages);
-//                messageToSendDown.addAll(messages);
-//            }
+            System.out.println("Signaling end of broadcasting messages");
+            Main.coordinator.finishedBroadcasting();
         }
     }
 
@@ -101,11 +81,6 @@ public class FIFO {
                 }
                 List<String> gotPacks = new LinkedList<>();
                 gotPacks.add(got);
-//                try {
-//                    Thread.sleep(0);
-//                } catch (InterruptedException e) {
-//                     System.out.println("Sleeping in FIFO deliver: " + e.toString());
-//                }
                 messageDeliveredDown.drainTo(gotPacks);
                 HashSet<Integer> pids = new HashSet<>();
                 for (String gotPack: gotPacks) {

@@ -17,20 +17,31 @@ public class Window {
             ackPack.add(false);
     }
 
-    public boolean canSend(Packet p) {
-        int lsn = Integer.parseInt(p.getMessage().split(" ")[1]);
+    public boolean canSend(int lsn) {
         return lsn >= lowerBound && lsn <= upperBound && !ackPack.get(lsn - lowerBound);
     }
 
-    public boolean alreadyAck(Packet p) {
-        int lsn = Integer.parseInt(p.getMessage().split(" ")[1]);
+    public boolean canSend(int lsn, Packet p) {
+        boolean ret = false;
+        try {
+            ret = lsn >= lowerBound && lsn <= upperBound && !ackPack.get(lsn - lowerBound);
+        } catch (IndexOutOfBoundsException e) {
+            System.out.println("Index out of bounds!");
+            System.out.println("Window: " + this);
+            System.out.println("lsn: " + lsn);
+            System.out.println("Arr length: " + ackPack.size());
+            System.out.println("Packet: " + p);
+        }
+        return ret;
+    }
+
+    public boolean alreadyAck(int lsn) {
         if (lsn > upperBound)
             return false;
         return lsn < lowerBound || !ackPack.get(lsn-lowerBound);
     }
 
-    public void markPacket(Packet p) {
-        int lsn = Integer.parseInt(p.getMessage().split(" ")[1]);
+    public void markPacket(int lsn) {
         assert (lsn - lowerBound >=0);
         ackPack.set(lsn - lowerBound, true);
         moveWindow();
@@ -70,12 +81,13 @@ public class Window {
     }
 
     public void timeoutStart() {
-        threshold = Math.max((upperBound - lowerBound)/2, 1);
-        upperBound = lowerBound;
+        threshold = Math.max((upperBound - lowerBound + 1)/2, Constants.WINDOW_SIZE);
+        upperBound = lowerBound + Constants.WINDOW_SIZE - 1;
+        //upperBound = lowerBound + threshold - 1;
     }
 
     public void dupAck() {
-        threshold = Math.max((upperBound - lowerBound)/2, 1);
+        threshold = Math.max((upperBound - lowerBound + 1)/2, Constants.WINDOW_SIZE);
         upperBound = lowerBound + threshold - 1;
     }
 
@@ -99,12 +111,17 @@ public class Window {
         return "Window{" +
                 "lowerBound=" + lowerBound +
                 ", upperBound=" + upperBound +
-                //", ackPack=" + ackPack +
+                //", needAck = " + ackPack.subList(0, upperBound - lowerBound + 1).stream().filter(a -> !a).count() +
+//                ", ackPack=" + ackPack +
                 ", threshold=" + threshold +
                 '}';
     }
 
     public int getUpperBound() {
         return upperBound;
+    }
+
+    public int getWindowSize() {
+        return upperBound - lowerBound + 1;
     }
 }

@@ -52,11 +52,11 @@ public class UniformReliableBroadcast {
                 //String sentMessage = String.format("%d %s", id, message);
                 List<String> sentMessages = new LinkedList<>();
                 sentMessages.add(message);
-                try {
-                    Thread.sleep(50);
-                } catch (InterruptedException e) {
-                    System.out.println("Sleeping in URB error: " + e.toString());
-                }
+//                try {
+//                    Thread.sleep(50);
+//                } catch (InterruptedException e) {
+//                    System.out.println("Sleeping in URB error: " + e.toString());
+//                }
                 messageToSendUp.drainTo(sentMessages);
                 sentMessages = sentMessages.stream().map(m ->
                         String.format("%d %s", id, m)).collect(Collectors.toList());
