@@ -31,5 +31,4 @@ public class Constants {
     // window size for flow control
     public static int WINDOW_SIZE = 1;
     public static int INIT_THRESH = 10000;
-    public static boolean immediateTimeout = true;
 }

@@ -59,7 +59,6 @@ public class Parser {
 
         Constants.WINDOW_SIZE = Integer.parseInt(args[11]);
         Constants.INIT_THRESH = Integer.parseInt(args[12]);
-        Constants.immediateTimeout = Boolean.parseBoolean(args[13]);
     }
 
     private void help() {
