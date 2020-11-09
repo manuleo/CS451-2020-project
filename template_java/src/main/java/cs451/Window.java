@@ -21,19 +21,6 @@ public class Window {
         return lsn >= lowerBound && lsn <= upperBound && !ackPack.get(lsn - lowerBound);
     }
 
-    public boolean canSend(int lsn, Packet p) {
-        boolean ret = false;
-        try {
-            ret = lsn >= lowerBound && lsn <= upperBound && !ackPack.get(lsn - lowerBound);
-        } catch (IndexOutOfBoundsException e) {
-            System.out.println("Index out of bounds!");
-            System.out.println("Window: " + this);
-            System.out.println("lsn: " + lsn);
-            System.out.println("Arr length: " + ackPack.size());
-            System.out.println("Packet: " + p);
-        }
-        return ret;
-    }
 
     public boolean alreadyAck(int lsn) {
         if (lsn > upperBound)
