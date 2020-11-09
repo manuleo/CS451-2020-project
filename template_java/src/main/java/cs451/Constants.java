@@ -29,6 +29,7 @@ public class Constants {
     public static final int CONFIG_VALUE = 10;
 
     // window size for flow control
-    public static final int WINDOW_SIZE = 1;
-    public static final int INIT_THRESH = 10000;
+    public static int WINDOW_SIZE = 1;
+    public static int INIT_THRESH = 10000;
+    public static boolean immediateTimeout = true;
 }

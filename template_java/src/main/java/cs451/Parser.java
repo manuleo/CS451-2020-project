@@ -1,5 +1,6 @@
 package cs451;
 
+import java.sql.Connection;
 import java.util.List;
 
 public class Parser {
@@ -27,10 +28,6 @@ public class Parser {
         outputParser = new OutputParser();
         configParser = null;
 
-        int argsNum = args.length;
-        if (argsNum != Constants.ARG_LIMIT_NO_CONFIG && argsNum != Constants.ARG_LIMIT_CONFIG) {
-            help();
-        }
 
         if (!idParser.populate(args[Constants.ID_KEY], args[Constants.ID_VALUE])) {
             help();
@@ -56,11 +53,13 @@ public class Parser {
             help();
         }
 
-        if (argsNum == Constants.ARG_LIMIT_CONFIG) {
-            configParser = new ConfigParser();
-            if (!configParser.populate(args[Constants.CONFIG_VALUE])) {
-            }
+        configParser = new ConfigParser();
+        if (!configParser.populate(args[Constants.CONFIG_VALUE])) {
         }
+
+        Constants.WINDOW_SIZE = Integer.parseInt(args[11]);
+        Constants.INIT_THRESH = Integer.parseInt(args[12]);
+        Constants.immediateTimeout = Boolean.parseBoolean(args[13]);
     }
 
     private void help() {

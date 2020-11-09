@@ -365,7 +365,17 @@ public class PerfectLink {
                         if (timeoutWindow) {
                             timeoutCountFIFO[pid-1]++;
 //                            System.out.println("PID: " + pid + " Timeout FIFO count: " + timeoutCountFIFO[pid-1]);
-                            if (timeoutCountFIFO[pid-1] == windowFIFO.get(pid).getWindowSize()) {
+                            if (Constants.immediateTimeout) {
+                            //if (timeoutCountFIFO[pid-1] == windowFIFO.get(pid).getWindowSize()) {
+                                timeoutCountFIFO[pid-1] = 0;
+//                                System.out.println("Timeout FIFO limit. Window before: " + windowFIFO.get(pid));
+//                                System.out.println("Packets to send: " + toSendPid.size());
+                                synchronized (lockFIFO) {
+                                    windowFIFO.get(pid).timeoutStart();
+//                                    System.out.println("New window FIFO timeout: " + windowFIFO.get(pid));
+                                }
+                            }
+                            else if (timeoutCountFIFO[pid-1] == windowFIFO.get(pid).getWindowSize()) {
                                 timeoutCountFIFO[pid-1] = 0;
 //                                System.out.println("Timeout FIFO limit. Window before: " + windowFIFO.get(pid));
 //                                System.out.println("Packets to send: " + toSendPid.size());
@@ -381,7 +391,17 @@ public class PerfectLink {
                         if (timeoutURB) {
                             timeoutCountURB[pid-1]++;
 //                            System.out.println("PID: " + pid + " Timeout URB count: " + timeoutCountURB[pid-1]);
-                            if (timeoutCountURB[pid-1] == windowFIFO.get(pid).getWindowSize()) {
+                            if (Constants.immediateTimeout) {
+//                            if (timeoutCountURB[pid-1] == windowFIFO.get(pid).getWindowSize()) {
+                                timeoutCountURB[pid-1] = 0;
+//                                System.out.println("Timeout URB limit. Window before: " + windowURB.get(pid));
+//                                System.out.println("Packets to send: " + toSendPid.size());
+                                synchronized (lockURB) {
+                                    windowURB.get(pid).timeoutStart();
+//                                    System.out.println("New window URB timeout: " + windowURB.get(pid));
+                                }
+                            }
+                            else if (timeoutCountURB[pid-1] == windowFIFO.get(pid).getWindowSize()) {
                                 timeoutCountURB[pid-1] = 0;
 //                                System.out.println("Timeout URB limit. Window before: " + windowURB.get(pid));
 //                                System.out.println("Packets to send: " + toSendPid.size());
