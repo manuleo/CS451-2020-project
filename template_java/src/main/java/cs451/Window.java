@@ -21,11 +21,10 @@ public class Window {
         return lsn >= lowerBound && lsn <= upperBound && !ackPack.get(lsn - lowerBound);
     }
 
-
     public boolean alreadyAck(int lsn) {
-        if (lsn > upperBound)
+        if (lsn >= lowerBound && lsn - lowerBound >= ackPack.size())
             return false;
-        return lsn < lowerBound || !ackPack.get(lsn-lowerBound);
+        return lsn < lowerBound || ackPack.get(lsn - lowerBound);
     }
 
     public void markPacket(int lsn) {
@@ -108,7 +107,4 @@ public class Window {
         return upperBound;
     }
 
-    public int getWindowSize() {
-        return upperBound - lowerBound + 1;
-    }
 }
