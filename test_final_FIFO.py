@@ -7,6 +7,8 @@ import time
 import tempfile
 import threading, subprocess
 import barrier, finishedSignal
+import numpy as np
+import sys
 
 
 import signal
@@ -161,7 +163,7 @@ class FifoBroadcastValidation(Validation):
         config = tempfile.NamedTemporaryFile(mode='w')
 
         for i in range(1, self.processes + 1):
-            hosts.write("{} localhost {}\n".format(i, PROCESSES_BASE_IP+i))
+            hosts.write("{} 127.0.0.1 {}\n".format(i, PROCESSES_BASE_IP+i))
 
         hosts.flush()
 
@@ -185,7 +187,7 @@ class FifoBroadcastValidation(Validation):
                 if tokens[0] == 'b':
                     msg = int(tokens[1])
                     if msg != i:
-                        print("File {}, Line {}: Messages broadcast out of order. Expected message {} but broadcast message {}".format(filename, lineNumber, i, msg))
+                        print("File {}, Line {}: Messages broadcast out of order. Expected message {} but broadcast message {}".format(filename, lineNumber, i, msg), flush=True)
                         return False
                     i += 1
 
@@ -194,7 +196,7 @@ class FifoBroadcastValidation(Validation):
                     sender = int(tokens[1])
                     msg = int(tokens[2])
                     if msg != nextMessage[sender]:
-                        print("File {}, Line {}: Message delivered out of order. Expected message {}, but delivered message {}".format(filename, lineNumber, nextMessage[sender], msg))
+                        print("File {}, Line {}: Message delivered out of order. Expected message {}, but delivered message {}".format(filename, lineNumber, nextMessage[sender], msg), flush=True)
                         return False
                     else:
                         nextMessage[sender] = msg + 1
@@ -253,7 +255,7 @@ class StressTest:
                     info.handle.send_signal(ProcessInfo.stateToSignal(op))
                     info.state = op
                     successfulAttempts += 1
-                    print("Sending {} to process {}".format(ProcessInfo.stateToSignalStr(op), proc))
+                    print("Sending {} to process {}".format(ProcessInfo.stateToSignalStr(op), proc), flush=True)
 
                     # if op == ProcessState.TERMINATED and proc not in terminatedProcs:
                     #     if len(terminatedProcs) < maxTerminatedProcesses:
@@ -298,7 +300,7 @@ class StressTest:
         else:
             self.stress()
 
-def startProcesses(processes, runscript, hostsFilePath, configFilePath, outputDir):
+def startProcesses(processes, runscript, hostsFilePath, configFilePath, outputDir, tent):
     runscriptPath = os.path.abspath(runscript)
     if not os.path.isfile(runscriptPath):
         raise Exception("`{}` is not a file".format(runscriptPath))
@@ -321,6 +323,8 @@ def startProcesses(processes, runscript, hostsFilePath, configFilePath, outputDi
     else:
         raise Exception("`{}` could not find a binary to execute. Make sure you build before validating".format(runscriptPath))
 
+    os.mkdir(outputDir + str(tent))
+    outputDirPath = os.path.abspath(outputDir + str(tent))
     procs = []
     for pid in range(1, processes+1):
         cmd_ext = ['--id', str(pid),
@@ -338,89 +342,128 @@ def startProcesses(processes, runscript, hostsFilePath, configFilePath, outputDi
 
     return procs
 
-def main(processes, messages, runscript, broadcastType, logsDir, testConfig):
+def main(processes, messages_avoided, runscript, broadcastType, logsDir, testConfig):
     # Set tc for loopback
-    tc = TC(testConfig['TC'])
-    print(tc)
+    # tc = TC(testConfig['TC'])
+    # print(tc)
 
-    # Start the barrier
-    initBarrier = barrier.Barrier(BARRIER_IP, BARRIER_PORT, processes)
-    initBarrier.listen()
-    startTimesFuture = initBarrier.startTimesFuture()
+    # windowSize = [100, 500, 1000, 2500, 5000, 10000, 20000]
+    # initThresh = [100, 500, 1000, 5000, 10000, 50000]
+    messages_list = [100, 500, 1000, 3000, 5000, 10000, 15000, 30000, 100000, 1000000]
+    waiting_time = [60, 60, 300, 600, 600, 600, 1200, 1200, 300, 600]
 
-    initBarrierThread = threading.Thread(target=initBarrier.wait)
-    initBarrierThread.start()
+    for i, messages in enumerate(messages_list):
+        tot_finishes = []
+        tot_dels = []
+        print("tentative:", i)
+        print("Messages:", messages)
+        print("Will wait:", waiting_time[i])
+        # Start the barrier
+        initBarrier = barrier.Barrier(BARRIER_IP, BARRIER_PORT, processes)
+        initBarrier.listen()
+        startTimesFuture = initBarrier.startTimesFuture()
 
-    # Start the finish signal
-    finishSignal = finishedSignal.FinishedSignal(SIGNAL_IP, SIGNAL_PORT, processes)
-    finishSignal.listen()
-    finishSignalThread = threading.Thread(target=finishSignal.wait)
-    finishSignalThread.start()
+        initBarrierThread = threading.Thread(target=initBarrier.wait)
+        initBarrierThread.start()
 
-    if broadcastType == "fifo":
-        validation = FifoBroadcastValidation(processes, messages, logsDir)
-    else:
-        validation = LCausalBroadcastValidation(processes, messages, logsDir, None)
+        # Start the finish signal
+        finishSignal = finishedSignal.FinishedSignal(SIGNAL_IP, SIGNAL_PORT, processes)
+        finishSignal.listen()
+        finishSignalThread = threading.Thread(target=finishSignal.wait)
+        finishSignalThread.start()
 
-    hostsFile, configFile = validation.generateConfig()
+        if broadcastType == "fifo":
+            validation = FifoBroadcastValidation(processes, messages, logsDir)
+        else:
+            validation = LCausalBroadcastValidation(processes, messages, logsDir, None)
 
-    try:
-        # Start the processes and get their PIDs
-        procs = startProcesses(processes, runscript, hostsFile.name, configFile.name, logsDir)
+        hostsFile, configFile = validation.generateConfig()
 
-        # Create the stress test
-        st = StressTest(procs,
-                        testConfig['ST']['concurrency'],
-                        testConfig['ST']['attempts'],
-                        testConfig['ST']['attemptsDistribution'])
+        try:
+            # Start the processes and get their PIDs
+            procs = startProcesses(processes, runscript, hostsFile.name, configFile.name, logsDir, i)
 
-        for (logicalPID, procHandle) in procs:
-            print("Process with logicalPID {} has PID {}".format(logicalPID, procHandle.pid))
+            # Create the stress test
+            st = StressTest(procs,
+                            testConfig['ST']['concurrency'],
+                            testConfig['ST']['attempts'],
+                            testConfig['ST']['attemptsDistribution'])
 
-
-        initBarrierThread.join()
-        print("All processes have been initialized.")
-
-        st.run()
-        print("StressTest is complete.")
+            for (logicalPID, procHandle) in procs:
+                print("Process with logicalPID {} has PID {}".format(logicalPID, procHandle.pid), flush=True)
 
 
-        print("Resuming stopped processes.")
-        st.continueStoppedProcesses()
+            initBarrierThread.join()
+            print("All processes have been initialized.", flush=True)
 
-        print("Waiting until all running processes have finished broadcasting.")
-        finishSignalThread.join()
+            #st.run()
+            print("StressTest is complete.")
 
-        for pid, startTs in OrderedDict(sorted(startTimesFuture.items())).items():
-            print("Process {} finished broadcasting {} messages in {} ms".format(pid, messages, finishSignal.endTimestamps()[pid] - startTs))
 
-        unterminated = st.remainingUnterminatedProcesses()
-        if unterminated is not None:
-            input('Hit `Enter` to terminate the remaining processes with logicalPIDs {}.'.format(unterminated))
+            print("Resuming stopped processes.")
+            st.continueStoppedProcesses()
+
+            print("Waiting until all running processes have finished broadcasting.", flush=True)
+            finishSignalThread.join(1)
+
+            if(not finishSignalThread.is_alive()):
+                finishes = []
+                for pid, startTs in OrderedDict(sorted(startTimesFuture.items())).items():
+                    print("Process {} finished broadcasting {} messages in {} ms".format(pid, messages, finishSignal.endTimestamps()[pid] - startTs), flush=True)
+                    finishes.append(finishSignal.endTimestamps()[pid] - startTs)
+                avg_time = np.mean(np.array(finishes))
+                print("Average time to finished broadcast: {} ms".format(avg_time), flush=True)
+                tot_finishes.append(avg_time)
+            else:
+                tot_finishes.append(1000)
+                print("Average time to finished broadcast: > 1 seconds", flush=True)
+
+
+            numberDel = []
+            time.sleep(waiting_time[i])
             st.terminateAllProcesses()
+            time.sleep(3)
+            for pid in range(1, processes+1):
+                filePath = os.path.join(logsDir, str(i), 'proc{:02d}.stdout'.format(pid))
+                with open(filePath) as f:
+                    for line in f:
+                        if "Total message delivered: " in line:
+                            tot_del = line.split("Total message delivered: ")[-1].rstrip("\n").rstrip()
+                            print("Process {} delivered {} messages".format(pid, tot_del), flush=True)
+                            numberDel.append(int(tot_del))
+                            break
+            avg_del = np.mean(np.array(numberDel))
+            print("Average number of delivered messages: {} ".format(avg_del), flush=True)
+            tot_dels.append(avg_del)
 
-        mutex = threading.Lock()
+            mutex = threading.Lock()
 
-        def waitForProcess(logicalPID, procHandle, mutex):
-            procHandle.wait()
+            def waitForProcess(logicalPID, procHandle, mutex):
+                procHandle.wait()
+                with mutex:
+                    print("Process {} exited with {}".format(logicalPID, procHandle.returncode), flush=True)
 
-            with mutex:
-                print("Process {} exited with {}".format(logicalPID, procHandle.returncode))
+            # Monitor which processes have exited
+            monitors = [threading.Thread(target=waitForProcess, args=(logicalPID, procHandle, mutex)) for (logicalPID, procHandle) in procs]
+            [p.start() for p in monitors]
+            [p.join() for p in monitors]
+            if procs is not None:
+                for _, p in procs:
+                    p.kill()
 
-        # Monitor which processes have exited
-        monitors = [threading.Thread(target=waitForProcess, args=(logicalPID, procHandle, mutex)) for (logicalPID, procHandle) in procs]
-        [p.start() for p in monitors]
-        [p.join() for p in monitors]
-
-        input('Hit `Enter` to validate the output')
-        print("Result of validation: {}".format(validation.checkAll()))
-
-    finally:
-        if procs is not None:
-            for _, p in procs:
-                p.kill()
+            # input('Hit `Enter` to validate the output')
+            # print("Result of validation: {}".format(validation.checkAll()))
+        finally:
+            if procs is not None:
+                for _, p in procs:
+                    p.kill()
+        full_avg_del = np.mean(np.array(tot_dels))
+        print(full_avg_del, flush=True)
+        full_avg_finishes = np.mean(np.array(tot_finishes))
+        print(full_avg_finishes, flush=True)
 
 if __name__ == "__main__":
+    sys.stdout = open("param.log", "w")
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
@@ -470,11 +513,46 @@ if __name__ == "__main__":
 
     testConfig = {
         # # Network configuration using the tc command
-        # Modified by me
         # 'TC': {
         #     'delay': ('100ms', '25ms'),
         #     'loss': ('5%', '10%'),
         #     'reordering': ('10%', '20%')
+        # },
+
+        # # StressTest configuration
+        # 'ST': {
+        #     'concurrency' : , # How many threads are interferring with the running processes
+        #     'attempts' : 8, # How many interferring attempts each threads does
+        #     'attemptsDistribution' : { # Probability with which an interferring thread will
+        #         'STOP': 0.48,          # select an interferring action (make sure they add up to 1)
+        #         'CONT': 0.48,
+        #         'TERM':0.04
+        #     }
+        # }
+        
+        # No stress
+        #Network configuration using the tc command
+        'TC': {
+            'delay': ('0ms', '0ms'),
+            'loss': ('0%', '0%'),
+            'reordering': ('0%', '0%')
+        },
+
+        # StressTest configuration
+        'ST': {
+            'concurrency' : 0, # How many threads are interferring with the running processes
+            'attempts' : 0, # How many interferring attempts each threads does
+            'attemptsDistribution' : { # Probability with which an interferring thread will
+                'STOP': 0,          # select an interferring action (make sure they add up to 1)
+                'CONT': 0,
+                'TERM':0
+            }
+        }
+
+        # 'TC': {
+        #     'delay': ('200ms', '50ms'),
+        #     'loss': ('10%', '25%'),
+        #     'reordering': ('25%', '50%')
         # },
 
         # # StressTest configuration
@@ -485,43 +563,6 @@ if __name__ == "__main__":
         #         'STOP': 0.48,          # select an interferring action (make sure they add up to 1)
         #         'CONT': 0.48,
         #         'TERM':0.04
-        #     }
-        # }
-
-        # Network configuration using the tc command
-        # Original conf
-        'TC': {
-            'delay': ('200ms', '50ms'),
-            'loss': ('10%', '25%'),
-            'reordering': ('25%', '50%')
-        },
-
-        # StressTest configuration
-        'ST': {
-            'concurrency' : 8, # How many threads are interferring with the running processes
-            'attempts' : 8, # How many interferring attempts each threads does
-            'attemptsDistribution' : { # Probability with which an interferring thread will
-                'STOP': 0.48,          # select an interferring action (make sure they add up to 1)
-                'CONT': 0.48,
-                'TERM':0.04
-            }
-        }
-        
-        # No stress
-        # 'TC': {
-        #     'delay': ('0ms', '0ms'),
-        #     'loss': ('0%', '0%'),
-        #     'reordering': ('0%', '0%')
-        # },
-
-        # # StressTest configuration
-        # 'ST': {
-        #     'concurrency' : 0, # How many threads are interferring with the running processes
-        #     'attempts' : 0, # How many interferring attempts each threads does
-        #     'attemptsDistribution' : { # Probability with which an interferring thread will
-        #         'STOP': 0,          # select an interferring action (make sure they add up to 1)
-        #         'CONT': 0,
-        #         'TERM':0
         #     }
         # }
     }
