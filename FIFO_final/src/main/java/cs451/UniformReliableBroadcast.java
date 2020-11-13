@@ -80,7 +80,7 @@ public class UniformReliableBroadcast {
                 }
                 synchronized (lockAck) {
                     // Add the message to the Hashmap of acked, stating that one process (myself) delivered it
-                    // This is basically a BEB deliver (no BEB layer in this implementation)
+                    // This is basically a BEB deliver
                     // to itself without going into the network
                     for (String sentMessage: sentMessages)
                             ack.put(sentMessage, 1);
@@ -93,6 +93,8 @@ public class UniformReliableBroadcast {
 
     /**
      * Broadcast a batch of messages (i.e. pass them to the PL) of type given (FIFO or URB, used at PL level)
+     * This function basically implement the BEB-broadcast, but avoid to deliver to myself because we've already done
+     * it before sending the message
      * @param messagesToSend list of messages to send
      * @param type packet type, indicating if the packet come from FIFO or is a URB re-broadcast
      */
@@ -147,6 +149,7 @@ public class UniformReliableBroadcast {
             String key;
             while (true) {
                 // Get everything you can from the layer below (Perfect Link) to build a batch
+                // This is basically BEB-delivering, as BEB would just deliver the message to us without doing any check
                 String got = null;
                 List<String> messagesToSend = new LinkedList<>();
                 try {
@@ -160,7 +163,7 @@ public class UniformReliableBroadcast {
                 // Process every packet received
                 for (String gotPack: gotPacks) {
                     String[] gotSplit = gotPack.split(" ");
-                    // Every message string can be of two type:
+                    // Every header message string can be of two type:
                     // 1. id m -> Message arrived from the original broadcaster with pid = id
                     // 2. pidR id m -> Message m from process with pid = id that was relied by pidR
                     // We get from such string the original pair "id m" and use this as key for the pending/ack maps
@@ -172,7 +175,8 @@ public class UniformReliableBroadcast {
                     synchronized (lockAck) { // Need to lock before accessing the map
                         // If it's the first time message is seen ->
                         //    add to the ack saying that 2 processes have seen it (myself and the sender)
-                        //    (like before, it's like BEB delivering to ourselves)
+                        //    (like before, it's like BEB sending and delivering to ourselves
+                        //     without going to the layer)
                         if (!ack.containsKey(key))
                             ack.put(key, 2);
                         // If we have seen the message before ->

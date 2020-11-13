@@ -17,21 +17,24 @@ import java.util.stream.Collectors;
  */
 public class PerfectLink {
 
-    private final int id;
-    private final int myPort;
+    private final int id; // My id
+    private final int myPort; // My port number
     private final HashMap<Integer, Integer> portMap; // Map process to the port used by that process
     // Messages to send received from URB or from the ACKChecker
     private final LinkedBlockingQueue<Packet> messageToSend;
     private final LinkedBlockingQueue<String> messageToDeliver; // Message to deliver up to URB
     // Queue used by the deliver thread to inform the ACKChecker of the ACKs received
     private final LinkedBlockingQueue<PacketTimeRnum> recACKs = new LinkedBlockingQueue<>();
+    // We keep two different windows to improve performance, the FIFO window will be substituted by a window
+    // for any layer you'd want to put above URB in next implementation
     private final ArrayList<Packet> packetToSendFIFO = new ArrayList<>(); // Packet to send of FIFO type
     private final ArrayList<Packet> packetToSendURB = new ArrayList<>(); // Packet to send of URB type
     private final HashMap<Integer, Window> windowFIFO = new HashMap<>(); // Window for FIFO packets
     private final HashMap<Integer, Window> windowURB = new HashMap<>(); // Window for URB packets
     // Map each URB packets to a lsn (different by process)
     private final HashMap<Integer, HashMap<Packet, Integer>> URBlsn = new HashMap<>();
-    private final HashMap<Integer, Integer> URBlsnCount = new HashMap<>(); // Keep track of next lsn to send for URB (by proc)
+    // Keep track of next lsn to send for URB (by proc)
+    private final HashMap<Integer, Integer> URBlsnCount = new HashMap<>();
     private final List<Host> hosts; // List of hosts
     // Map each process to a map of packets -> each packet to a list of time in which it was sent
     private final ArrayList<HashMap<Packet, ArrayList<Long>>> toRecAckProcess;
@@ -129,7 +132,7 @@ public class PerfectLink {
                 // Iterate over the packets to send on FIFO and check if we can send them
                 for(Iterator<Packet> itFIFO = packetToSendFIFO.iterator(); itFIFO.hasNext();) {
                     Packet pFIFO = itFIFO.next();
-                    // Get lsn (second element of the message)
+                    // Get lsn (second element of the message, other data will eventually come later)
                     int lsn = Integer.parseInt(pFIFO.getMessage().split(" ")[1]);
                     synchronized (lockFIFO) {
                         // Check if packet cannot be sent by looking into the process window FIFO
@@ -487,7 +490,7 @@ public class PerfectLink {
         InetAddress destIp = dpRec.getAddress(); // IP to send to
         int pid = Integer.parseInt(sRec.split(" ")[0]); // Pid to send to
         int destPort = portMap.get(pid); // Port to send to
-        sendString = String.format("ACK %d %s:%s", id, rNum, sRec); // Message ACK pid retransmit:messageACKed
+        sendString = String.format("ACK %d %s:%s", id, rNum, sRec); // Message is "ACK pid retransmit:messageACKed"
         // Prepare the packet to send and send it on the socket
         sendBuf = sendString.getBytes();
         DatagramPacket dpSend =
@@ -517,7 +520,7 @@ public class PerfectLink {
                 if (!sRec.contains("ACK")) {
                     // If it's a normal message, note which one is the retransmit to ack and ACK it
                     // Note: Message is delivered only if it wasn't received before
-                    String[] messAndResend = sRec.split(",");
+                    String[] messAndResend = sRec.split(","); // Resend number after the ,
                     if (!recMessage.contains(messAndResend[0])) {
                         // Add to received
                         recMessage.add(messAndResend[0]);
@@ -528,7 +531,7 @@ public class PerfectLink {
                         }
                     }
                     // Send ACK
-                    sendACK(dpRec, messAndResend[0], messAndResend[1]);
+                    sendACK(dpRec, messAndResend[0], messAndResend[1]); // Datagram, message, retransmit num
                 }
                 else{
                     // It's an ACK packet -> get the parameters from it
@@ -539,7 +542,7 @@ public class PerfectLink {
                     InetAddress address = dpRec.getAddress(); // IP address
                     int port = portMap.get(pid); // Port
                     Packet.packType type;
-                    // Depending on length of the message (2 or 3), determine the packet type (FIFO or URB)
+                    // Depending on length of the header message (2 or 3), determine the packet type (FIFO or URB)
                     if (ackedPack[1].split(" ").length == 2)
                         type = Packet.packType.FIFO;
                     else

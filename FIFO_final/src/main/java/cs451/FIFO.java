@@ -60,6 +60,9 @@ public class FIFO {
                     }
                     try {
                         // Broadcast message i
+                        // (lsn is the only content of the message, we may add something after if we want)
+                        // To add something after we will add it after a special char so that the
+                        // header of the message remain the same
                         messageToSendDown.put(String.valueOf(i));
                     } catch (InterruptedException e) {
                         System.out.println("Sending message in main error: " + e.toString());
@@ -126,7 +129,8 @@ public class FIFO {
                     List<String> allDelivers = new LinkedList<>();
                     HashSet<String> newMess = pending.get(pid);
                     while (true) {
-                        // Check if we can deliver something from the pid (i.e. we have a message with the correct lsn)
+                        // Check if we can deliver something from the pid
+                        // (i.e. we have a message with the correct lsn, lsn is always the second element)
                         Optional<String> toDeliver = newMess.stream()
                                 .filter(x -> Integer.parseInt(x.split(" ")[1]) == seqNums[pid-1])
                                 .findFirst();
