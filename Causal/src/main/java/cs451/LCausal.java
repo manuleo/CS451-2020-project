@@ -1,5 +1,6 @@
 package cs451;
 
+import java.security.MessageDigest;
 import java.util.*;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.stream.Collectors;
@@ -61,11 +62,18 @@ public class LCausal {
                         }
                     }
                     try {
-                        int[] W = vcSend;
-                        W[id-1] = lsn;
+                        int[] W;
+                        synchronized (lockV) {
+                            //System.out.println("VC send: " + Arrays.toString(vcSend));
+                            //System.out.println("lsn: " + lsn);
+                            W = vcSend.clone();
+                            W[id - 1] = lsn;
+                        }
                         // Eventually add any other thing we want to add after the lsn or we can add other elements
                         // in the MessagePacket class
-                        messageToSendDown.put(new MessagePacket(String.valueOf(lsn), W));
+                        MessagePacket messagePacket = new MessagePacket(String.valueOf(lsn), W);
+                        //System.out.println("Sending " + messagePacket);
+                        messageToSendDown.put(messagePacket);
                     } catch (InterruptedException e) {
                         System.out.println("Sending message in main error: " + e.toString());
                     }
@@ -74,8 +82,8 @@ public class LCausal {
                         // that will still be expected behavior
                         Main.out.add("b " + lsn);
                     }
-                    lsn++;
                 }
+                lsn++;
             }
             // After the end of the cycle we finished broadcasting (messages will eventually be sent): we can signal it
             System.out.println("Signaling end of broadcasting messages");
@@ -136,21 +144,20 @@ public class LCausal {
                 }
                 // Cycle over the pids
                 for (int pid: pids) {
+//                    System.out.println("PID: " + pid);
+//                    System.out.println("Pending: " + pending.get(pid));
+//                    System.out.println("VC REC: " + Arrays.toString(vcRec));
                     // Save in this list all the message we can deliver in this round
                     List<MessagePacket> allDelivers = new LinkedList<>();
-                    HashSet<MessagePacket> newMess = pending.get(pid);
                     while (true) {
                         // Check if we can deliver something from the pid
-                        Optional<MessagePacket> toDeliver = newMess.stream()
+                        Optional<MessagePacket> toDeliver = pending.get(pid).stream()
                                 .filter(x -> deliverableVC(x.getW()))
                                 .findFirst();
                         // If we can't deliver anything anymore
                         if(toDeliver.isEmpty()) {
                             // If we can deliver at least 1 message
                             if (allDelivers.size()!=0) {
-                                // Remove everything we have delivered from the pending
-                                newMess.removeAll(allDelivers);
-                                pending.put(pid, newMess);
                                 // Send the messages for delivery in the queue
                                 messageToDeliverUp.addAll(allDelivers.stream()
                                                 .map(MessagePacket::getMessage)
@@ -162,9 +169,14 @@ public class LCausal {
                             // If we can deliver the message, increase the lsn we want to get
                             // and add the message to the ones will deliver
                             vcRec[pid-1]++;
-                            if (influences.contains(pid))
-                                vcSend[pid-1]++;
+                            //System.out.println("New VC Rec: " + Arrays.toString(vcRec));
+                            synchronized (lockV) {
+                                if (influences.contains(pid))
+                                    vcSend[pid-1]++;
+                                //System.out.println("New VC Send: " + Arrays.toString(vcSend));
+                            }
                             allDelivers.add(toDeliver.get());
+                            pending.get(pid).remove(toDeliver.get());
                         }
                     }
                 }

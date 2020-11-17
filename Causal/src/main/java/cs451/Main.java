@@ -12,7 +12,7 @@ public class Main {
     private static String outName;
     private static Coordinator coordinator;
     private static int m;
-    private static HashSet<Integer> influences;
+    private static HashSet<Integer> influences = new HashSet<>();
     protected static LinkedList<String> out = new LinkedList<>();
     private static final LinkedBlockingQueue<String> messageDelivered = new LinkedBlockingQueue<>();
     private static final LinkedList<String> recPack = new LinkedList<>();
@@ -112,9 +112,9 @@ public class Main {
                 m = Integer.parseInt(data);
             } else {
                 String[] splits = data.split(" ");
-                if (Integer.parseInt(splits[0]) == id) {
+                if (Integer.parseInt(splits[0]) == id && splits.length > 1) {
                     for (int j = 1; j < splits.length; j++)
-                        influences.add(Integer.parseInt(splits[i]));
+                        influences.add(Integer.parseInt(splits[j]));
                     break;
                 }
             }

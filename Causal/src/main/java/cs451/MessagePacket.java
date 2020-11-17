@@ -2,6 +2,7 @@ package cs451;
 
 import java.io.*;
 import java.security.MessageDigest;
+import java.util.Arrays;
 import java.util.Objects;
 
 public class MessagePacket implements Serializable {
@@ -51,5 +52,13 @@ public class MessagePacket implements Serializable {
     @Override
     public int hashCode() {
         return Objects.hash(message);
+    }
+
+    @Override
+    public String toString() {
+        return "MessagePacket{" +
+                "message='" + message + '\'' +
+                ", W=" + Arrays.toString(W) +
+                '}';
     }
 }

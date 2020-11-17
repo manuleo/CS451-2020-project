@@ -202,14 +202,132 @@ class FifoBroadcastValidation(Validation):
         return True
 
 class LCausalBroadcastValidation(Validation):
-    def __init__(self, processes, outputDir, causalRelationships):
-        super().__init__(processes, outputDir)
+    def __init__(self, processes, messages, outputDir, causalRelationships, maxCausal):
+        super().__init__(processes, messages, outputDir)
+        self.causalRelationships = causalRelationships
+        self.maxCausal = maxCausal
+        self.causalMessages = {}
 
     def generateConfig(self):
-        raise NotImplementedError()
+        hosts = tempfile.NamedTemporaryFile(mode='w')
+        config = tempfile.NamedTemporaryFile(mode='w')
 
-    def checkProcess(self, pid):
-        raise NotImplementedError()
+        for i in range(1, self.processes + 1):
+            hosts.write("{} localhost {}\n".format(i, PROCESSES_BASE_IP+i))
+        hosts.flush()
+
+        if (self.causalRelationships == None):
+            generateNewCausal = True
+            self.causalRelationships = {}
+        else:
+            generateNewCausal = False
+        
+        config.write("{}\n".format(self.messages))
+        for i in range(1, self.processes + 1):
+            if generateNewCausal:
+                poss_casual = [j for j in range(1, self.processes + 1) if j!=i]
+                numCausal = random.randint(0, self.maxCausal + 1)
+                causal = random.sample(poss_casual, numCausal)
+                config.write("{}".format(i))
+                for c in causal:
+                    config.write(" {}".format(c))
+                config.write("\n")
+                self.causalRelationships[i] = causal
+            else:
+                config.write("{}".format(i))
+                for c in self.causalRelationships[i]:
+                    config.write(" {}".format(c))
+                config.write("\n")
+        config.flush()
+
+        return (hosts, config)
+
+    def checkFIFO(self, pid):
+        filePath = os.path.join(self.outputDirPath, 'proc{:02d}.output'.format(pid))
+
+        i = 1
+        nextMessage = defaultdict(lambda : 1)
+        filename = os.path.basename(filePath)
+        self.causalMessages[pid] = defaultdict(set)
+        lastDelivery = {}
+        for p in self.causalRelationships[pid]:
+            lastDelivery[p] = None
+        
+        # Check FIFO order and in the meantime save causal relationships
+        with open(filePath) as f:
+            for lineNumber, line in enumerate(f):
+                tokens = line.split()
+
+                # Check broadcast
+                if tokens[0] == 'b':
+                    msg = int(tokens[1])
+                    if msg != i:
+                        print("File {}, Line {}: Messages broadcast out of order. Expected message {} but broadcast message {}".format(filename, lineNumber, i, msg))
+                        return False
+                    i += 1
+                    for p in self.causalRelationships[pid]:
+                        if lastDelivery[p]!=None:
+                            self.causalMessages[pid][msg].add("{} {}".format(p, lastDelivery[p]))
+
+
+                # Check delivery
+                if tokens[0] == 'd':
+                    sender = int(tokens[1])
+                    msg = int(tokens[2])
+                    if msg != nextMessage[sender]:
+                        print("File {}, Line {}: Message delivered out of order. Expected message {}, but delivered message {}".format(filename, lineNumber, nextMessage[sender], msg))
+                        return False
+                    else:
+                        nextMessage[sender] = msg + 1
+                    if sender in lastDelivery:
+                        lastDelivery[sender] = msg
+
+        #print("Process: {} Extracted message relationships: {}".format(pid, self.causalMessages[pid]))
+        return True
+
+    def checkLCausal(self, pid):
+        filePath = os.path.join(self.outputDirPath, 'proc{:02d}.output'.format(pid))
+        filename = os.path.basename(filePath)
+        delivered = set()
+        print("Checking LCausal", pid)
+        with open(filePath) as f:
+            for lineNumber, line in enumerate(f):
+               tokens = line.split()
+               if tokens[0] == 'd':
+                sender = int(tokens[1])
+                msg = int(tokens[2])
+                delivered.add("{} {}".format(sender, msg))
+                if msg in self.causalMessages[sender]:
+                    shouldBeDelivered = self.causalMessages[sender][msg]
+                    #print("Message {} from process {}, should be delivered {}, delivered {}".format(msg, sender, shouldBeDelivered, delivered.intersection(shouldBeDelivered)))
+                    if not delivered.issuperset(shouldBeDelivered):
+                        print("File {}, Line {}: Causal relationship violated. Expected messages {}, but delivered messages {}".format(filename, lineNumber, shouldBeDelivered, delivered.intersection(shouldBeDelivered)))
+                        return False
+        return True
+
+    def checkAll(self, continueOnError=True):
+        ok = True
+        #Check FIFO
+        for pid in range(1, self.processes+1):
+            ret = self.checkFIFO(pid)
+            if not ret:
+                ok = False
+
+            if not ret and not continueOnError:
+                return False
+        
+        # Check LCausal
+        for pid in range(1, self.processes+1):
+            ret = self.checkLCausal(pid)
+            if not ret:
+                ok = False
+
+            if not ret and not continueOnError:
+                return False
+        
+        return ok
+
+
 
 class StressTest:
     def __init__(self, procs, concurrency, attempts, attemptsRatio):
@@ -338,7 +456,7 @@ def startProcesses(processes, runscript, hostsFilePath, configFilePath, outputDi
 
     return procs
 
-def main(processes, messages, runscript, broadcastType, logsDir, testConfig):
+def main(processes, messages, runscript, broadcastType, logsDir, maxCausal, testConfig):
     # Set tc for loopback
     tc = TC(testConfig['TC'])
     print(tc)
@@ -360,9 +478,11 @@ def main(processes, messages, runscript, broadcastType, logsDir, testConfig):
     if broadcastType == "fifo":
         validation = FifoBroadcastValidation(processes, messages, logsDir)
     else:
-        validation = LCausalBroadcastValidation(processes, messages, logsDir, None)
-
+        validation = LCausalBroadcastValidation(processes, messages, logsDir, None, maxCausal)
+    
     hostsFile, configFile = validation.generateConfig()
+    if broadcastType == "lcausal":
+        print("Causal relationships:", validation.causalRelationships)
 
     try:
         # Start the processes and get their PIDs
@@ -466,6 +586,15 @@ if __name__ == "__main__":
         help="Maximum number (because it can crash) of messages that each process can broadcast",
     )
 
+    parser.add_argument(
+        "-c",
+        "--maxCausal",
+        required=False,
+        type=int,
+        dest="maxCausal",
+        help="Maximum number of causality relationships (must be <= num_processes-1)",
+    )
+
     results = parser.parse_args()
 
     testConfig = {
@@ -490,40 +619,40 @@ if __name__ == "__main__":
 
         # Network configuration using the tc command
         # Original conf
-        'TC': {
-            'delay': ('200ms', '50ms'),
-            'loss': ('10%', '25%'),
-            'reordering': ('25%', '50%')
-        },
-
-        # StressTest configuration
-        'ST': {
-            'concurrency' : 8, # How many threads are interferring with the running processes
-            'attempts' : 8, # How many interferring attempts each threads does
-            'attemptsDistribution' : { # Probability with which an interferring thread will
-                'STOP': 0.48,          # select an interferring action (make sure they add up to 1)
-                'CONT': 0.48,
-                'TERM':0.04
-            }
-        }
-        
-        # No stress
         # 'TC': {
-        #     'delay': ('0ms', '0ms'),
-        #     'loss': ('0%', '0%'),
-        #     'reordering': ('0%', '0%')
+        #     'delay': ('200ms', '50ms'),
+        #     'loss': ('10%', '25%'),
+        #     'reordering': ('25%', '50%')
         # },
 
         # # StressTest configuration
         # 'ST': {
-        #     'concurrency' : 0, # How many threads are interferring with the running processes
-        #     'attempts' : 0, # How many interferring attempts each threads does
+        #     'concurrency' : 8, # How many threads are interferring with the running processes
+        #     'attempts' : 8, # How many interferring attempts each threads does
         #     'attemptsDistribution' : { # Probability with which an interferring thread will
-        #         'STOP': 0,          # select an interferring action (make sure they add up to 1)
-        #         'CONT': 0,
-        #         'TERM':0
+        #         'STOP': 0.48,          # select an interferring action (make sure they add up to 1)
+        #         'CONT': 0.48,
+        #         'TERM':0.04
         #     }
         # }
+        
+        # No stress
+        'TC': {
+            'delay': ('0ms', '0ms'),
+            'loss': ('0%', '0%'),
+            'reordering': ('0%', '0%')
+        },
+
+        # StressTest configuration
+        'ST': {
+            'concurrency' : 0, # How many threads are interferring with the running processes
+            'attempts' : 0, # How many interferring attempts each threads does
+            'attemptsDistribution' : { # Probability with which an interferring thread will
+                'STOP': 0,          # select an interferring action (make sure they add up to 1)
+                'CONT': 0,
+                'TERM':0
+            }
+        }
     }
 
-    main(results.processes, results.messages, results.runscript, results.broadcastType, results.logsDir, testConfig)
+    main(results.processes, results.messages, results.runscript, results.broadcastType, results.logsDir, results.maxCausal, testConfig)

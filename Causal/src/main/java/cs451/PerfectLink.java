@@ -208,6 +208,7 @@ public class PerfectLink {
         DatagramPacket dpSend =
                 new DatagramPacket(sendBuf, sendBuf.length, destIp, destPort);
         sendOnSocket(dpSend);
+        //System.out.println("Sent " + p + "with MessagePacket " + messagePacketToSend);
     }
 
     /**
@@ -536,6 +537,7 @@ public class PerfectLink {
                     System.out.println("Impossible to deserialize packet! " + e.getMessage());
                 }
                 assert pRec != null;
+                //System.out.println("Received " + pRec);
                 if (!pRec.getMessage().contains("ACK")) {
                     // If it's a normal message, note which one is the retransmit to ack and ACK it
                     // Note: Message is delivered only if it wasn't received before
