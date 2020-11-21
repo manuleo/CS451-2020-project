@@ -16,6 +16,8 @@ from enum import Enum
 
 from collections import defaultdict, OrderedDict
 
+from generate_memb_ste import generate_memb_ste, create_memb_from_dict
+
 
 BARRIER_IP = 'localhost'
 BARRIER_PORT = 10000
@@ -202,9 +204,10 @@ class FifoBroadcastValidation(Validation):
         return True
 
 class LCausalBroadcastValidation(Validation):
-    def __init__(self, processes, messages, outputDir, causalRelationships, maxCausal):
+    def __init__(self, processes, messages, outputDir, causalRelationships, otherCausal, maxCausal):
         super().__init__(processes, messages, outputDir)
         self.causalRelationships = causalRelationships
+        self.otherCausal = otherCausal
         self.maxCausal = maxCausal
         self.causalMessages = {}
 
@@ -215,18 +218,21 @@ class LCausalBroadcastValidation(Validation):
         for i in range(1, self.processes + 1):
             hosts.write("{} localhost {}\n".format(i, PROCESSES_BASE_IP+i))
         hosts.flush()
+        ste = True
 
-        if (self.causalRelationships == None):
+        if (self.otherCausal == False):
             generateNewCausal = True
             self.causalRelationships = {}
         else:
             generateNewCausal = False
-        
+            if ste:
+                self.causalRelationships = generate_memb_ste(self.processes, self.maxCausal)
+
         config.write("{}\n".format(self.messages))
         for i in range(1, self.processes + 1):
             if generateNewCausal:
                 poss_casual = [j for j in range(1, self.processes + 1) if j!=i]
-                numCausal = random.randint(0, self.maxCausal + 1)
+                numCausal = random.randint(0, self.maxCausal)
                 causal = random.sample(poss_casual, numCausal)
                 config.write("{}".format(i))
                 for c in causal:
@@ -240,6 +246,9 @@ class LCausalBroadcastValidation(Validation):
                 config.write("\n")
         config.flush()
 
+        if ste and self.otherCausal == False and generateNewCausal:
+            create_memb_from_dict(self.causalRelationships, self.processes)
+        
         return (hosts, config)
 
     def checkFIFO(self, pid):
@@ -456,7 +465,7 @@ def startProcesses(processes, runscript, hostsFilePath, configFilePath, outputDi
 
     return procs
 
-def main(processes, messages, runscript, broadcastType, logsDir, maxCausal, testConfig):
+def main(processes, messages, runscript, broadcastType, logsDir, maxCausal, otherCausal, testConfig):
     # Set tc for loopback
     tc = TC(testConfig['TC'])
     print(tc)
@@ -478,7 +487,7 @@ def main(processes, messages, runscript, broadcastType, logsDir, maxCausal, test
     if broadcastType == "fifo":
         validation = FifoBroadcastValidation(processes, messages, logsDir)
     else:
-        validation = LCausalBroadcastValidation(processes, messages, logsDir, None, maxCausal)
+        validation = LCausalBroadcastValidation(processes, messages, logsDir, None, otherCausal, maxCausal)
     
     hostsFile, configFile = validation.generateConfig()
     if broadcastType == "lcausal":
@@ -595,6 +604,15 @@ if __name__ == "__main__":
         help="Maximum number of causality relationships (must be <= num_processes-1)",
     )
 
+    parser.add_argument(
+        "-oc",
+        "--otherCausal",
+        required=False,
+        action="store_true",
+        dest="otherCausal",
+        help="Use other causal relationships instead of generating",
+    )
+
     results = parser.parse_args()
 
     testConfig = {
@@ -619,40 +637,40 @@ if __name__ == "__main__":
 
         # Network configuration using the tc command
         # Original conf
-        # 'TC': {
-        #     'delay': ('200ms', '50ms'),
-        #     'loss': ('10%', '25%'),
-        #     'reordering': ('25%', '50%')
-        # },
-
-        # # StressTest configuration
-        # 'ST': {
-        #     'concurrency' : 8, # How many threads are interferring with the running processes
-        #     'attempts' : 8, # How many interferring attempts each threads does
-        #     'attemptsDistribution' : { # Probability with which an interferring thread will
-        #         'STOP': 0.48,          # select an interferring action (make sure they add up to 1)
-        #         'CONT': 0.48,
-        #         'TERM':0.04
-        #     }
-        # }
-        
-        # No stress
         'TC': {
-            'delay': ('0ms', '0ms'),
-            'loss': ('0%', '0%'),
-            'reordering': ('0%', '0%')
+            'delay': ('200ms', '50ms'),
+            'loss': ('10%', '25%'),
+            'reordering': ('25%', '50%')
         },
 
         # StressTest configuration
         'ST': {
-            'concurrency' : 0, # How many threads are interferring with the running processes
-            'attempts' : 0, # How many interferring attempts each threads does
+            'concurrency' : 8, # How many threads are interferring with the running processes
+            'attempts' : 8, # How many interferring attempts each threads does
             'attemptsDistribution' : { # Probability with which an interferring thread will
-                'STOP': 0,          # select an interferring action (make sure they add up to 1)
-                'CONT': 0,
-                'TERM':0
+                'STOP': 0.48,          # select an interferring action (make sure they add up to 1)
+                'CONT': 0.48,
+                'TERM':0.04
             }
         }
+        
+        # No stress
+        # 'TC': {
+        #     'delay': ('0ms', '0ms'),
+        #     'loss': ('0%', '0%'),
+        #     'reordering': ('0%', '0%')
+        # },
+
+        # # StressTest configuration
+        # 'ST': {
+        #     'concurrency' : 0, # How many threads are interferring with the running processes
+        #     'attempts' : 0, # How many interferring attempts each threads does
+        #     'attemptsDistribution' : { # Probability with which an interferring thread will
+        #         'STOP': 0,          # select an interferring action (make sure they add up to 1)
+        #         'CONT': 0,
+        #         'TERM':0
+        #     }
+        # }
     }
 
-    main(results.processes, results.messages, results.runscript, results.broadcastType, results.logsDir, results.maxCausal, testConfig)
+    main(results.processes, results.messages, results.runscript, results.broadcastType, results.logsDir, results.maxCausal, results.otherCausal, testConfig)

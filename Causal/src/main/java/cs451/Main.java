@@ -121,7 +121,7 @@ public class Main {
             i+=1;
         }
         input.close();
-        influences.add(id);
+        //influences.add(id);
     }
 
 

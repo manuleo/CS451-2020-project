@@ -62,12 +62,21 @@ public class LCausal {
                         }
                     }
                     try {
+                        // TODO: sleep here to enforce more relations to be built! Remember to remove!!
+                        Thread.sleep(250);
                         int[] W;
                         synchronized (lockV) {
                             //System.out.println("VC send: " + Arrays.toString(vcSend));
                             //System.out.println("lsn: " + lsn);
                             W = vcSend.clone();
                             W[id - 1] = lsn;
+                            synchronized (Main.lockOut) {
+                                // Directly add the message as broadcasted, even if we fail before this is done
+                                // Doing it here avoid the edge case where the delivery thread put the message
+                                // as delivered immediately after we copied the VC but before we put it in broadcast
+                                // Creating a causal relationship in the output that do not exist
+                                Main.out.add("b " + lsn);
+                            }
                         }
                         // Eventually add any other thing we want to add after the lsn or we can add other elements
                         // in the MessagePacket class
@@ -76,11 +85,6 @@ public class LCausal {
                         messageToSendDown.put(messagePacket);
                     } catch (InterruptedException e) {
                         System.out.println("Sending message in main error: " + e.toString());
-                    }
-                    synchronized (Main.lockOut) {
-                        // Directly add the message as broadcasted, even if we fail before this is done
-                        // that will still be expected behavior
-                        Main.out.add("b " + lsn);
                     }
                 }
                 lsn++;
