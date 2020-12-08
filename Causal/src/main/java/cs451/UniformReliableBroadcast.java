@@ -214,7 +214,6 @@ public class UniformReliableBroadcast {
                 if (deliverable.size()!=0) {
                     delivered.addAll(deliverable);
                     messageToDeliverUp.addAll(deliverable);
-                    //System.out.println("Deliverable: " + deliverable);
                 }
                 // Broadcast the messages we added to the pending set to everyone, indicating these are URB messages
                 send(messagesToSend, Packet.packType.URB);

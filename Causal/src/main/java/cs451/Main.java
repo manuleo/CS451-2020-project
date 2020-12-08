@@ -72,11 +72,6 @@ public class Main {
         if (parser.hasConfig()) {
             System.out.println("Config: " + parser.config());
             parseConfig(parser.config(), parser.myId());
-//            // By some analysis I discovered this configuration as being better when m<=10000
-//            if (m<=10000) {
-//                Constants.WINDOW_SIZE = 500;
-//                Constants.INIT_THRESH = 2000;
-//            }
         }
         // Set up coordinator
         coordinator = new Coordinator(parser.myId(), parser.barrierIp(), parser.barrierPort(), parser.signalIp(), parser.signalPort());
@@ -112,6 +107,7 @@ public class Main {
                 m = Integer.parseInt(data);
             } else {
                 String[] splits = data.split(" ");
+                // Found the line that corresponds to the process -> Save influences
                 if (Integer.parseInt(splits[0]) == id && splits.length > 1) {
                     for (int j = 1; j < splits.length; j++)
                         influences.add(Integer.parseInt(splits[j]));
@@ -121,7 +117,6 @@ public class Main {
             i+=1;
         }
         input.close();
-        //influences.add(id);
     }
 
 

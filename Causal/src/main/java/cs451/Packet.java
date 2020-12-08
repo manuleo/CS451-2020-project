@@ -5,7 +5,7 @@ import java.util.Objects;
 
 /**
  * Utility class to represent a packet to be sent to a specified process
- * Include also the packet type (FIFO, URB)
+ * Include also the packet type (LCausal, URB)
  */
 public class Packet {
     private final MessagePacket messagePacket;

@@ -1,6 +1,5 @@
 package cs451;
 
-import java.security.MessageDigest;
 import java.util.*;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.stream.Collectors;
@@ -12,14 +11,14 @@ public class LCausal {
     private final LinkedBlockingQueue<MessagePacket> messageDeliveredDown; // Messages delivered from URB
     private final LinkedBlockingQueue<String> messageToDeliverUp; // Messages to deliver to Main
     private final Coordinator coordinator; // Main coordinator for finishedBroadcasting()
-    private int[] vcSend;
-    private int[] vcRec;
-    private HashSet<Integer> influences;
-    private int id;
-    private int m;
+    private int[] vcSend; // Vector clock of messages to send (to ensure others will respect process' causal relations)
+    private int[] vcRec; // Vector clock of messages to receive (to ensure respect of other causal relations)
+    private HashSet<Integer> influences; // List of pid of processes influencing this process
+    private int id; // Process id
+    private int m; // Number of messages to broadcast
     protected static int windowLimit = Constants.WINDOW_SIZE; // Number of sendable messages (changed by PL)
     protected static final Object lockSending = new Object(); // Lock waiting for more messages to be deliverable
-    protected static final Object lockV = new Object();
+    protected static final Object lockV = new Object(); // Lock for vector clock modification
 
     public LCausal(List<Host> hosts, int id, LinkedBlockingQueue<String> messageToDeliverUp, Coordinator coordinator,
                    int m, HashSet<Integer> influences) {
@@ -63,13 +62,12 @@ public class LCausal {
                     }
                     try {
                         // TODO: sleep here to enforce more relations to be built! Remember to remove!!
-                        Thread.sleep(250);
+                        Thread.sleep(100);
                         int[] W;
                         synchronized (lockV) {
-                            //System.out.println("VC send: " + Arrays.toString(vcSend));
-                            //System.out.println("lsn: " + lsn);
+                            // Prepare vector clock W to send
                             W = vcSend.clone();
-                            W[id - 1] = lsn;
+                            W[id - 1] = lsn; // Put process lsn inside W clock
                             synchronized (Main.lockOut) {
                                 // Directly add the message as broadcasted, even if we fail before this is done
                                 // Doing it here avoid the edge case where the delivery thread put the message
@@ -78,16 +76,14 @@ public class LCausal {
                                 Main.out.add("b " + lsn);
                             }
                         }
-                        // Eventually add any other thing we want to add after the lsn or we can add other elements
-                        // in the MessagePacket class
+                        // Create a MessagePacket that contains lsn as header info + the vector clock
                         MessagePacket messagePacket = new MessagePacket(String.valueOf(lsn), W);
-                        //System.out.println("Sending " + messagePacket);
-                        messageToSendDown.put(messagePacket);
+                        messageToSendDown.put(messagePacket); // Send it down
                     } catch (InterruptedException e) {
                         System.out.println("Sending message in main error: " + e.toString());
                     }
                 }
-                lsn++;
+                lsn++; // Increase the lsn for next packet
             }
             // After the end of the cycle we finished broadcasting (messages will eventually be sent): we can signal it
             System.out.println("Signaling end of broadcasting messages");
@@ -106,21 +102,28 @@ public class LCausal {
      * Class (i.e. thread) that will perform the message delivery
      */
     private class Receive extends Thread {
+
+
+        /**
+         * Check that the vector clock W associated to a message is deliverable by comparing it
+         * with the vector clock of received messages
+         * @param W Vector Clock to consider
+         * @return true if W <= VcRec, else otherwise
+         */
+        private boolean deliverableVC (int[] W) {
+            for (int i = 0; i < W.length; i++) {
+                if (W[i] > vcRec[i])
+                    return false; // At least one element is >, return false
+            }
+            return true; // All elements are <=
+        }
+
         /**
          * Run receiver thread
          * This thread will check that for every message delivered from URB
          * if we can actually deliver it or no, keeping the messages to deliver in the pending map
          * and removing from that map the one we can deliver.
          */
-
-        private boolean deliverableVC (int[] W) {
-            for (int i = 0; i < W.length; i++) {
-                if (W[i] > vcRec[i])
-                    return false;
-            }
-            return true;
-        }
-
         @Override
         public void run() {
             while (true) {
@@ -138,7 +141,7 @@ public class LCausal {
                 // Save from who we delivered something at URB (we check only these because we may deliver something)
                 HashSet<Integer> pids = new HashSet<>();
                 for (MessagePacket gotPack: gotPacks) {
-                    // Get [pid, mess] array and add pid to pids and message to the pending of that pid
+                    // Get [pid, MessagePacket] array and add pid to pids and message to the pending of that pid
                     String[] gotSplit = gotPack.getMessage().split(" ");
                     int pid = Integer.parseInt(gotSplit[0]);
                     pids.add(pid);
@@ -148,9 +151,6 @@ public class LCausal {
                 }
                 // Cycle over the pids
                 for (int pid: pids) {
-//                    System.out.println("PID: " + pid);
-//                    System.out.println("Pending: " + pending.get(pid));
-//                    System.out.println("VC REC: " + Arrays.toString(vcRec));
                     // Save in this list all the message we can deliver in this round
                     List<MessagePacket> allDelivers = new LinkedList<>();
                     while (true) {
@@ -170,15 +170,18 @@ public class LCausal {
                             break;
                         }
                         else {
-                            // If we can deliver the message, increase the lsn we want to get
-                            // and add the message to the ones will deliver
-                            vcRec[pid-1]++;
-                            //System.out.println("New VC Rec: " + Arrays.toString(vcRec));
-                            synchronized (lockV) {
-                                if (influences.contains(pid))
+                            // If we can deliver the message
+                            vcRec[pid-1]++; // Save that we received a message for that pid by increasing its lsn
+                            if (influences.contains(pid)) {
+                                // If the pid influences us, save the influence in vcSend by increasing its lsn
+                                // This way all the other processes will know that they have to deliver this message
+                                // before delivering anything from this process
+                                synchronized (lockV) {
                                     vcSend[pid-1]++;
-                                //System.out.println("New VC Send: " + Arrays.toString(vcSend));
+                                }
                             }
+                            // Save the message to be delivered later on in the batch
+                            // and remove it from the pending list
                             allDelivers.add(toDeliver.get());
                             pending.get(pid).remove(toDeliver.get());
                         }

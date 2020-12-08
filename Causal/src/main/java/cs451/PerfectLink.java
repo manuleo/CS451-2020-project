@@ -208,7 +208,6 @@ public class PerfectLink {
         DatagramPacket dpSend =
                 new DatagramPacket(sendBuf, sendBuf.length, destIp, destPort);
         sendOnSocket(dpSend);
-        //System.out.println("Sent " + p + "with MessagePacket " + messagePacketToSend);
     }
 
     /**
@@ -499,6 +498,7 @@ public class PerfectLink {
         int pid = Integer.parseInt(mpRec.getMessage().split(" ")[0]); // Pid to send to
         int destPort = portMap.get(pid); // Port to send to
         // Message is "ACK pid retransmit:messageACKed"
+        // We don't need to send a W over the network in this case as won't be used
         sendString = String.format("ACK %d %s:%s", id, rNum, mpRec.getMessage());
         MessagePacket ackMessage = new MessagePacket(sendString, null);
         // Prepare the packet to send and send it on the socket
@@ -537,7 +537,6 @@ public class PerfectLink {
                     System.out.println("Impossible to deserialize packet! " + e.getMessage());
                 }
                 assert pRec != null;
-                //System.out.println("Received " + pRec);
                 if (!pRec.getMessage().contains("ACK")) {
                     // If it's a normal message, note which one is the retransmit to ack and ACK it
                     // Note: Message is delivered only if it wasn't received before
@@ -570,6 +569,8 @@ public class PerfectLink {
                     else
                         type = Packet.packType.URB;
                     // Create a packet with the known info and put in the queue for the ACKChecker
+                    // Note there's no need to put a W here as it's just a check for ACK
+                    // (and there wasn't one in the ACK message)
                     Packet p = new Packet(new MessagePacket(ackedPack[1], null), address, port, pid, type);
                     try {
                         // Create a packetTimeRnum with packet, time received and retransmit number
