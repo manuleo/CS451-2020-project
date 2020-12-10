@@ -5,25 +5,25 @@ import java.util.Objects;
 
 /**
  * Utility class to represent a packet to be sent to a specified process
- * Include also the packet type (LCausal, URB)
+ * Include also the packet type (FIFO, URB)
  */
 public class Packet {
-    private final MessagePacket messagePacket;
+    private final String message;
     private final InetAddress destIp;
     private final int destPort;
     private final int destId;
     private final packType type;
-    protected enum packType {LCausal, URB}; // Packet type enum used in another parts of the code
+    protected enum packType {FIFO, URB}; // Packet type enum used in another parts of the code
 
     /**
-     * @param messagePacket message to send + data
+     * @param message message to send
      * @param destIp destination ip of the receiver
      * @param destPort destination port of the receiver
      * @param destId destination id of the receiver
      * @param type packet type
      */
-    public Packet(MessagePacket messagePacket, InetAddress destIp, int destPort, int destId, packType type) {
-        this.messagePacket = messagePacket;
+    public Packet(String message, InetAddress destIp, int destPort, int destId, packType type) {
+        this.message = message;
         this.destIp = destIp;
         this.destPort = destPort;
         this.destId = destId;
@@ -54,8 +54,8 @@ public class Packet {
     /**
      * @return the message
      */
-    public MessagePacket getMessagePacket() {
-        return messagePacket;
+    public String getMessage() {
+        return message;
     }
 
     /**
@@ -77,7 +77,7 @@ public class Packet {
         Packet packet = (Packet) o;
         return destPort == packet.destPort &&
                 destId == packet.destId &&
-                messagePacket.equals(packet.messagePacket) &&
+                message.equals(packet.message) &&
                 destIp.equals(packet.destIp) &&
                 type == packet.type;
     }
@@ -87,7 +87,7 @@ public class Packet {
      */
     @Override
     public int hashCode() {
-        return Objects.hash(messagePacket, destIp, destPort, destId, type);
+        return Objects.hash(message, destIp, destPort, destId, type);
     }
 
     /**
@@ -96,7 +96,7 @@ public class Packet {
     @Override
     public String toString() {
         return "Packet{" +
-                "message='" + messagePacket.getMessage() + '\'' +
+                "message='" + message + '\'' +
                 ", destId=" + destId +
                 ", type=" + type +
                 '}';

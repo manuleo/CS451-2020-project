@@ -4,15 +4,13 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.net.InetAddress;
 import java.util.*;
 import java.util.concurrent.LinkedBlockingQueue;
 
 public class Main {
     private static String outName;
     private static Coordinator coordinator;
-    private static int m;
-    private static HashSet<Integer> influences = new HashSet<>();
+    protected static int m;
     protected static LinkedList<String> out = new LinkedList<>();
     private static final LinkedBlockingQueue<String> messageDelivered = new LinkedBlockingQueue<>();
     private static final LinkedList<String> recPack = new LinkedList<>();
@@ -71,7 +69,12 @@ public class Main {
         m = 0;
         if (parser.hasConfig()) {
             System.out.println("Config: " + parser.config());
-            parseConfig(parser.config(), parser.myId());
+            m = parseConfig(parser.config());
+            // By some analysis I discovered this configuration as being better when m<=10000
+            if (m<=10000) {
+                Constants.WINDOW_SIZE = 500;
+                Constants.INIT_THRESH = 2000;
+            }
         }
         // Set up coordinator
         coordinator = new Coordinator(parser.myId(), parser.barrierIp(), parser.barrierPort(), parser.signalIp(), parser.signalPort());
@@ -80,7 +83,7 @@ public class Main {
 
         // Start broadcast
         System.out.println("Broadcasting messages...");
-        LCausalBroadcast(parser);
+        FIFOBroadcast(parser);
         while (true) {
             // Sleep for 1 hour
             Thread.sleep(60 * 60 * 1000);
@@ -90,9 +93,9 @@ public class Main {
     /**
      * Get number of messages to deliver from configuration file
      * @param config: configuration file path
-     * @return number of messages to broadcast, processes influencing the current process
+     * @return number of messages to broadcast
      */
-    private static void parseConfig(String config, int id) {
+    private static int parseConfig(String config) {
         Scanner input = null;
         try {
             input = new Scanner(new File(config));
@@ -100,33 +103,27 @@ public class Main {
             System.out.println("File config not found exception! " + e.toString());
         }
         int i = 0;
+        int m  = 0;
         while(input.hasNextLine()) {
             // Read first line: integer m
             String data = input.nextLine();
             if (i==0) {
                 m = Integer.parseInt(data);
-            } else {
-                String[] splits = data.split(" ");
-                // Found the line that corresponds to the process -> Save influences
-                if (Integer.parseInt(splits[0]) == id && splits.length > 1) {
-                    for (int j = 1; j < splits.length; j++)
-                        influences.add(Integer.parseInt(splits[j]));
-                    break;
-                }
             }
             i+=1;
         }
         input.close();
+        return m;
     }
 
 
     /**
-     * Broadcast LCausal messages
+     * Broadcast FIFO messages
      * @param parser the argument parser
      */
-    private static void LCausalBroadcast(Parser parser) {
-        // Start the LCausal
-        LCausal lCausal = new LCausal(parser.hosts(), parser.myId(), messageDelivered, coordinator, m, influences);
+    private static void FIFOBroadcast(Parser parser) {
+        // Start the FIFO
+        FIFO fifo = new FIFO(parser.hosts(), parser.myId(), messageDelivered, coordinator);
 
         /**
         * Deliver class to get messages delivered from low levels

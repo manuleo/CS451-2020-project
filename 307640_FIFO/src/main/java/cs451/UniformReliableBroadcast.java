@@ -12,16 +12,16 @@ import java.util.stream.Collectors;
 public class UniformReliableBroadcast {
 
     private final PerfectLink pl;
-    private final HashSet<MessagePacket> delivered = new HashSet<>(); // Already delivered messages
-    private final HashSet<MessagePacket> pending = new HashSet<>(); // Yet to deliver messages
+    private final HashSet<String> delivered = new HashSet<>(); // Already delivered messages
+    private final HashSet<String> pending = new HashSet<>(); // Yet to deliver messages
     private final List<Host> hosts; // List of hosts
     private final int id;
     private final int minCorrect; // Minimum number of correct processes
     private final LinkedBlockingQueue<Packet> messageToSendDown; // Messages to send to PL
-    private final LinkedBlockingQueue<MessagePacket> messageToSendUp; // Messages to send received from LCausal
-    private final LinkedBlockingQueue<MessagePacket> messageDeliveredDown; // Messages delivered from PL
-    private final LinkedBlockingQueue<MessagePacket> messageToDeliverUp; // Messages to deliver to LCausal
-    private static final HashMap<MessagePacket, Integer> ack = new HashMap<>(); // Count number of acks for each message
+    private final LinkedBlockingQueue<String> messageToSendUp; // Messages to send received from FIFO
+    private final LinkedBlockingQueue<String> messageDeliveredDown; // Messages delivered from PL
+    private final LinkedBlockingQueue<String> messageToDeliverUp; // Messages to deliver to FIFO
+    private static final HashMap<String, Integer> ack = new HashMap<>(); // Count number of acks for each message
     private static final Object lockPending = new Object(); // Lock to avoid concurrent modifications to pending
     private static final Object lockAck = new Object(); // Lock to avoid concurrent modifications to ack
 
@@ -29,11 +29,11 @@ public class UniformReliableBroadcast {
      * Init the URB layer and start sending/delivering
      * @param hosts list of hosts to use
      * @param id id of this process
-     * @param messageToDeliverUp queue to send message to the layer above (LCausal) for delivery
-     * @param messageToSendUp queue to receive message from the layer above (LCausal) for sending
+     * @param messageToDeliverUp queue to send message to the layer above (FIFO) for delivery
+     * @param messageToSendUp queue to receive message from the layer above (FIFO) for sending
      */
-    public UniformReliableBroadcast(List<Host> hosts, int id, LinkedBlockingQueue<MessagePacket> messageToSendUp,
-                                    LinkedBlockingQueue<MessagePacket> messageToDeliverUp) {
+    public UniformReliableBroadcast(List<Host> hosts, int id, LinkedBlockingQueue<String> messageToSendUp,
+                                    LinkedBlockingQueue<String> messageToDeliverUp) {
         // Init control structures and Perfect Link
         this.messageToSendUp = messageToSendUp;
         this.messageToDeliverUp = messageToDeliverUp;
@@ -56,25 +56,24 @@ public class UniformReliableBroadcast {
     private class Broadcast extends Thread{
         /**
          * Run the broadcast thread
-         * Get every message of LCausal and send them to the PL to broadcast them
+         * Get every message of FIFO and send them to the PL to broadcast them
          */
         @Override
         public void run() {
             while(true) {
                 // Get messages to send from the layer above (all the batch you can get)
-                MessagePacket message = null;
+                String message = null;
                 try {
                     message = messageToSendUp.take();
                 } catch (InterruptedException e) {
                     System.out.println("Getting message in URB error: " + e.toString());
                 }
-                List<MessagePacket> sentMessages = new LinkedList<>();
+                List<String> sentMessages = new LinkedList<>();
                 sentMessages.add(message);
                 messageToSendUp.drainTo(sentMessages);
                 // Add the process id in front of the message lsn
-                sentMessages = sentMessages.stream().map(mP ->
-                        new MessagePacket(String.format("%d %s", id, mP.getMessage()), mP.getW()))
-                        .collect(Collectors.toList());
+                sentMessages = sentMessages.stream().map(m ->
+                        String.format("%d %s", id, m)).collect(Collectors.toList());
                 synchronized (lockPending) {
                     // Add the messages to the pending set (checked later in delivering)
                     pending.addAll(sentMessages);
@@ -83,26 +82,26 @@ public class UniformReliableBroadcast {
                     // Add the message to the Hashmap of acked, stating that one process (myself) delivered it
                     // This is basically a BEB deliver
                     // to itself without going into the network
-                    for (MessagePacket sentMessage: sentMessages)
+                    for (String sentMessage: sentMessages)
                             ack.put(sentMessage, 1);
                 }
-                // Send the messages, indicating they come from LCausal
-                send(sentMessages, Packet.packType.LCausal);
+                // Send the messages, indicating they come from FIFO
+                send(sentMessages, Packet.packType.FIFO);
             }
         }
     }
 
     /**
-     * Broadcast a batch of messages (i.e. pass them to the PL) of type given (LCausal or URB, used at PL level)
+     * Broadcast a batch of messages (i.e. pass them to the PL) of type given (FIFO or URB, used at PL level)
      * This function basically implement the BEB-broadcast, but avoid to deliver to myself because we've already done
      * it before sending the message
      * @param messagesToSend list of messages to send
-     * @param type packet type, indicating if the packet come from LCausal or is a URB re-broadcast
+     * @param type packet type, indicating if the packet come from FIFO or is a URB re-broadcast
      */
-    private void send(List<MessagePacket> messagesToSend, Packet.packType type) {
+    private void send(List<String> messagesToSend, Packet.packType type) {
         // Cycle over the host, creating a "Packet" with same message but different host endpoint
         for (Host h: hosts) {
-            // If I'm at myself, continue (packet already delivered by BEB)
+            // If I'm at myself, continue (packet already delivered)
             if (id == h.getId()) {
                 continue;
             }
@@ -138,7 +137,7 @@ public class UniformReliableBroadcast {
          * @param key the message to check
          * @return true if the message can be delivered, false otherwise
          */
-        private synchronized boolean canDeliver(MessagePacket key) {
+        private synchronized boolean canDeliver(String key) {
             return ack.getOrDefault(key, 0) >= minCorrect;
         }
 
@@ -147,23 +146,23 @@ public class UniformReliableBroadcast {
          */
         @Override
         public void run() {
-            MessagePacket key;
+            String key;
             while (true) {
                 // Get everything you can from the layer below (Perfect Link) to build a batch
                 // This is basically BEB-delivering, as BEB would just deliver the message to us without doing any check
-                MessagePacket got = null;
-                List<MessagePacket> messagesToSend = new LinkedList<>();
+                String got = null;
+                List<String> messagesToSend = new LinkedList<>();
                 try {
                     got = messageDeliveredDown.take();
                 } catch (InterruptedException e) {
                     System.out.println("Getting delivered packet in URB: " + e.toString());
                 }
-                List<MessagePacket> gotPacks = new LinkedList<>();
+                List<String> gotPacks = new LinkedList<>();
                 gotPacks.add(got);
                 messageDeliveredDown.drainTo(gotPacks);
                 // Process every packet received
-                for (MessagePacket gotPack: gotPacks) {
-                    String[] gotSplit = gotPack.getMessage().split(" ");
+                for (String gotPack: gotPacks) {
+                    String[] gotSplit = gotPack.split(" ");
                     // Every header message string can be of two type:
                     // 1. id m -> Message arrived from the original broadcaster with pid = id
                     // 2. pidR id m -> Message m from process with pid = id that was relied by pidR
@@ -171,7 +170,7 @@ public class UniformReliableBroadcast {
                     if (gotSplit.length == 2)
                         key = gotPack;
                     else
-                        key = new MessagePacket(gotSplit[1] + " " + gotSplit[2], gotPack.getW());
+                        key = gotSplit[1] + " " + gotSplit[2];
 
                     synchronized (lockAck) { // Need to lock before accessing the map
                         // If it's the first time message is seen ->
@@ -194,14 +193,13 @@ public class UniformReliableBroadcast {
                         synchronized (lockPending) {
                             pending.add(key);
                         }
-                        MessagePacket sentMessage = new MessagePacket(
-                                String.format("%d %s", id, key.getMessage()), key.getW());
+                        String sentMessage = String.format("%d %s", id, key);
                         messagesToSend.add(sentMessage);
                     }
                 }
 
                 // After batch is processed, check what we can deliver
-                List <MessagePacket> deliverable;
+                List <String> deliverable;
                 synchronized (lockPending) {
                     // Filter the pending set by checking the message can be delivered (canDeliver(m))
                     // and that it wasn't delivered before
@@ -210,7 +208,7 @@ public class UniformReliableBroadcast {
                             .filter(p -> !delivered.contains(p))
                             .collect(Collectors.toList());
                 }
-                // Add all deliverable messages to delivered set and to the queue that will be checked by LCausal
+                // Add all deliverable messages to delivered set and to the queue that will be checked by FIFO
                 if (deliverable.size()!=0) {
                     delivered.addAll(deliverable);
                     messageToDeliverUp.addAll(deliverable);

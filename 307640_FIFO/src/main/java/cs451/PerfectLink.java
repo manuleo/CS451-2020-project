@@ -2,6 +2,7 @@ package cs451;
 
 import java.io.IOException;
 import java.net.*;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -21,14 +22,14 @@ public class PerfectLink {
     private final HashMap<Integer, Integer> portMap; // Map process to the port used by that process
     // Messages to send received from URB or from the ACKChecker
     private final LinkedBlockingQueue<Packet> messageToSend;
-    private final LinkedBlockingQueue<MessagePacket> messageToDeliver; // Message to deliver up to URB
+    private final LinkedBlockingQueue<String> messageToDeliver; // Message to deliver up to URB
     // Queue used by the deliver thread to inform the ACKChecker of the ACKs received
     private final LinkedBlockingQueue<PacketTimeRnum> recACKs = new LinkedBlockingQueue<>();
-    // We keep two different windows to improve performance, the LCausal window will be substituted by a window
+    // We keep two different windows to improve performance, the FIFO window will be substituted by a window
     // for any layer you'd want to put above URB in next implementation
-    private final ArrayList<Packet> packetToSendLCausal = new ArrayList<>(); // Packet to send of LCausal type
+    private final ArrayList<Packet> packetToSendFIFO = new ArrayList<>(); // Packet to send of FIFO type
     private final ArrayList<Packet> packetToSendURB = new ArrayList<>(); // Packet to send of URB type
-    private final HashMap<Integer, Window> windowLCausal = new HashMap<>(); // Window for LCausal packets
+    private final HashMap<Integer, Window> windowFIFO = new HashMap<>(); // Window for FIFO packets
     private final HashMap<Integer, Window> windowURB = new HashMap<>(); // Window for URB packets
     // Map each URB packets to a lsn (different by process)
     private final HashMap<Integer, HashMap<Packet, Integer>> URBlsn = new HashMap<>();
@@ -39,10 +40,10 @@ public class PerfectLink {
     private final ArrayList<HashMap<Packet, ArrayList<Long>>> toRecAckProcess;
     private DatagramSocket dsSend; // Socket to send messages
     private DatagramSocket dsRec; // Socket to receive messages
-    private static final HashSet<MessagePacket> recMessage = new HashSet<>(); // Messages received
+    private static final HashSet<String> recMessage = new HashSet<>(); // Messages received
     private static final Object lockAck = new Object(); // Lock on toReckAck Map
     private static final Object lockURB = new Object(); // Lock on URB window and lsn maps
-    private static final Object lockLCausal = new Object(); // Lock on LCausal window
+    private static final Object lockFIFO = new Object(); // Lock on FIFO window
 
 
     /**
@@ -54,7 +55,7 @@ public class PerfectLink {
      * @param messageToSend queue to receive message from the layer above (URB) for sending
      */
     public PerfectLink(int id, int myPort, List<Host> hosts,
-                       LinkedBlockingQueue<Packet> messageToSend, LinkedBlockingQueue<MessagePacket> messageToDeliver) {
+                       LinkedBlockingQueue<Packet> messageToSend, LinkedBlockingQueue<String> messageToDeliver) {
         this.id = id;
         this.myPort = myPort;
         this.messageToSend = messageToSend;
@@ -84,7 +85,7 @@ public class PerfectLink {
         for (Host h: hosts) {
             portMap.put(h.getId(), h.getPort());
             toRecAckProcess.add(h.getId()-1, new HashMap<>());
-            windowLCausal.put(h.getId(), new Window(Constants.WINDOW_SIZE));
+            windowFIFO.put(h.getId(), new Window(Constants.WINDOW_SIZE));
             windowURB.put(h.getId(), new Window(Constants.WINDOW_SIZE));
             URBlsn.put(h.getId(), new HashMap<>());
             URBlsnCount.put(h.getId(), 0);
@@ -119,32 +120,32 @@ public class PerfectLink {
                     pToSend.add(p1);
                     messageToSend.drainTo(pToSend);
                     pToSend.forEach(p -> {
-                        if (p.getType() == Packet.packType.LCausal) {
-                            if (!packetToSendLCausal.contains(p))
-                                packetToSendLCausal.add(p); // Add to packets to send LCausal
+                        if (p.getType() == Packet.packType.FIFO) {
+                            if (!packetToSendFIFO.contains(p))
+                                packetToSendFIFO.add(p); // Add to packets to send FIFO
                         } else {
                             if (!packetToSendURB.contains(p))
                                 packetToSendURB.add(p); // Add to packets to send URB
                         }
                     });
                 }
-                // Iterate over the packets to send on LCausal and check if we can send them
-                for(Iterator<Packet> itLCausal = packetToSendLCausal.iterator(); itLCausal.hasNext();) {
-                    Packet pLCausal = itLCausal.next();
+                // Iterate over the packets to send on FIFO and check if we can send them
+                for(Iterator<Packet> itFIFO = packetToSendFIFO.iterator(); itFIFO.hasNext();) {
+                    Packet pFIFO = itFIFO.next();
                     // Get lsn (second element of the message, other data will eventually come later)
-                    int lsn = Integer.parseInt(pLCausal.getMessagePacket().getMessage().split(" ")[1]);
-                    synchronized (lockLCausal) {
-                        // Check if packet cannot be sent by looking into the process window LCausal
-                        if (!windowLCausal.get(pLCausal.getDestId()).canSend(lsn)) {
+                    int lsn = Integer.parseInt(pFIFO.getMessage().split(" ")[1]);
+                    synchronized (lockFIFO) {
+                        // Check if packet cannot be sent by looking into the process window FIFO
+                        if (!windowFIFO.get(pFIFO.getDestId()).canSend(lsn)) {
                             // Check if packet (inside the window) was already acked. If it is, remove it from the sends
-                            if (windowLCausal.get(pLCausal.getDestId()).alreadyAck(lsn))
-                                itLCausal.remove();
+                            if (windowFIFO.get(pFIFO.getDestId()).alreadyAck(lsn))
+                                itFIFO.remove();
                             continue;
                         }
                     }
                     // We can send the packet. Do it and remove
-                    sendPacket(pLCausal);
-                    itLCausal.remove();
+                    sendPacket(pFIFO);
+                    itFIFO.remove();
                 }
                 // Iterate over the URB packet
                 for(Iterator<Packet> itURB = packetToSendURB.iterator(); itURB.hasNext();) {
@@ -183,7 +184,7 @@ public class PerfectLink {
      */
     private void sendPacket(Packet p) {
         // Get info from the packets
-        String sendString = p.getMessagePacket().getMessage();
+        String sendString = p.getMessage();
         InetAddress destIp = p.getDestIp();
         int destPort = p.getDestPort();
         String sendStringWithRet;
@@ -198,13 +199,7 @@ public class PerfectLink {
             toRecAckProcess.get(p.getDestId()-1).put(p, retransmits);
         }
         // Create the DatagramPacket of the message and send it on the socket
-        MessagePacket messagePacketToSend = new MessagePacket(sendStringWithRet, p.getMessagePacket().getW());
-        byte[] sendBuf = null;
-        try {
-            sendBuf = messagePacketToSend.serialize();
-        } catch (IOException e) {
-            System.out.println("Impossible to serialize packet! " + e.toString());
-        }
+        byte[] sendBuf = sendStringWithRet.getBytes();
         DatagramPacket dpSend =
                 new DatagramPacket(sendBuf, sendBuf.length, destIp, destPort);
         sendOnSocket(dpSend);
@@ -232,7 +227,7 @@ public class PerfectLink {
         Double beta; // Beta parameter for RTO estimation
         HashMap<Integer, HashSet<Packet>> dupAck = new HashMap<>(); // Map of duplicated ack per process
         boolean[] firstTimeoutURB; // Bool vector to give a "second chance" after timeout URB
-        boolean[] firstTimeoutLCausal; // Bool vector to give a "second chance" after timeout LCausal
+        boolean[] firstTimeoutFIFO; // Bool vector to give a "second chance" after timeout FIFO
 
         /**
          * Init ACKChecker
@@ -250,9 +245,9 @@ public class PerfectLink {
             alpha = 1.0/8.0;
             beta = 1.0/4.0;
             firstTimeoutURB = new boolean[hosts.size()];
-            firstTimeoutLCausal = new boolean[hosts.size()];
+            firstTimeoutFIFO = new boolean[hosts.size()];
             Arrays.fill(firstTimeoutURB, false);
-            Arrays.fill(firstTimeoutLCausal, false);
+            Arrays.fill(firstTimeoutFIFO, false);
         }
 
         /**
@@ -284,10 +279,9 @@ public class PerfectLink {
                         }
                         else {
                             // Get lsn and check if was already ack
-                            int lsn = Integer.parseInt(
-                                    pt.getPacket().getMessagePacket().getMessage().split(" ")[1]);
-                            synchronized (lockLCausal) {
-                                isDup = windowLCausal.get(pid).alreadyAck(lsn);
+                            int lsn = Integer.parseInt(pt.getPacket().getMessage().split(" ")[1]);
+                            synchronized (lockFIFO) {
+                                isDup = windowFIFO.get(pid).alreadyAck(lsn);
                             }
                         }
                         if (isDup) {
@@ -302,8 +296,8 @@ public class PerfectLink {
                                     }
                                 }
                                 else {
-                                    synchronized (lockLCausal) {
-                                        windowLCausal.get(pid).dupAck();
+                                    synchronized (lockFIFO) {
+                                        windowFIFO.get(pid).dupAck();
                                     }
                                 }
                             }
@@ -330,13 +324,12 @@ public class PerfectLink {
                             }
                         }
                         else {
-                            // Received an ack for LCausal, mark the packet as received and
-                            // increase the LCausal window for the process (by 1 or doubling, depending on threshold)
-                            int lsn = Integer.parseInt(
-                                    pt.getPacket().getMessagePacket().getMessage().split(" ")[1]);
-                            synchronized (lockLCausal) {
-                                windowLCausal.get(pid).markPacket(lsn);
-                                windowLCausal.get(pid).increaseSize();
+                            // Received an ack for FIFO, mark the packet as received and
+                            // increase the FIFO window for the process (by 1 or doubling, depending on threshold)
+                            int lsn = Integer.parseInt(pt.getPacket().getMessage().split(" ")[1]);
+                            synchronized (lockFIFO) {
+                                windowFIFO.get(pid).markPacket(lsn);
+                                windowFIFO.get(pid).increaseSize();
                             }
                         }
                         long RTTm;
@@ -367,18 +360,18 @@ public class PerfectLink {
                         // Update RTO: RTO = RTTs + 4*RTTd
                         RTO[pid-1] = RTTs[pid-1] + 4*RTTd[pid-1];
                     }
-                    synchronized (LCausal.lockSending) {
-                        // Update the number of packets LCausal can send
+                    synchronized (FIFO.lockSending) {
+                        // Update the number of packets FIFO can send
                         // The value is updated to the maximum upper bound one of the process can handle.
                         // This way no process will be blocked by other being slower
                         // (the slower process won't receive the new packets anyway because of their windows)
-                        synchronized (lockLCausal) {
-                            LCausal.windowLimit = Math.max(LCausal.windowLimit,
-                                    windowLCausal
+                        synchronized (lockFIFO) {
+                            FIFO.windowLimit = Math.max(FIFO.windowLimit,
+                                    windowFIFO
                                             .values().stream()
                                             .mapToInt(Window::getUpperBound).max().orElse(Constants.WINDOW_SIZE));
-                            // Notify LCausal that now can send more
-                            LCausal.lockSending.notify();
+                            // Notify FIFO that now can send more
+                            FIFO.lockSending.notify();
                         }
                     }
                 }
@@ -420,10 +413,10 @@ public class PerfectLink {
                                 }
                             }
                             else {
-                                int lsn = Integer.parseInt(p.getMessagePacket().getMessage().split(" ")[1]);
-                                synchronized (lockLCausal) {
-                                    // LCausal type: if already acked remove from LCausal window
-                                    if (windowLCausal.get(pid).alreadyAck(lsn)) {
+                                int lsn = Integer.parseInt(p.getMessage().split(" ")[1]);
+                                synchronized (lockFIFO) {
+                                    // FIFO type: if already acked remove from FIFO window
+                                    if (windowFIFO.get(pid).alreadyAck(lsn)) {
                                         synchronized (lockAck) {
                                             toRecAckProcess.get(pid).remove(p);
                                             it.remove();
@@ -432,23 +425,23 @@ public class PerfectLink {
                                 }
                             }
                         }
-                        // Check if any LCausal packet timed out
+                        // Check if any FIFO packet timed out
                         boolean timeoutWindow = toSendPid.stream()
                                 .map(Packet::getType)
-                                .anyMatch(packType -> packType == Packet.packType.LCausal);
+                                .anyMatch(packType -> packType == Packet.packType.FIFO);
                         if (timeoutWindow) {
-                            // If firstTimeoutLCausal[pid-1]=false we don't reduce the window (a "second chance")
+                            // If firstTimeoutFIFO[pid-1]=false we don't reduce the window (a "second chance")
                             // Giving the second chance may help because this is not like classical TCP,
                             // a process may have nothing acked at this batch but it will have in the next one
-                            if (!firstTimeoutLCausal[pid-1]) {
-                                firstTimeoutLCausal[pid-1] = true;
+                            if (!firstTimeoutFIFO[pid-1]) {
+                                firstTimeoutFIFO[pid-1] = true;
                                 continue;
                             }
                             // If it's the second time of timeout, reduce the window with timeout
                             // (i.e. put the window size to Constants.WINDOW_SIZE and thresh = windowSize/2)
-                            firstTimeoutLCausal[pid-1] = false;
-                            synchronized (lockLCausal) {
-                                windowLCausal.get(pid).timeoutStart();
+                            firstTimeoutFIFO[pid-1] = false;
+                            synchronized (lockFIFO) {
+                                windowFIFO.get(pid).timeoutStart();
                             }
                         }
                         // Check if any URB packet timed out
@@ -456,7 +449,7 @@ public class PerfectLink {
                                 .map(Packet::getType)
                                 .anyMatch(packType -> packType == Packet.packType.URB);
                         if (timeoutURB) {
-                            // Same reasoning as LCausal about second chance
+                            // Same reasoning as FIFO about second chance
                             if (!firstTimeoutURB[pid-1]) {
                                 firstTimeoutURB[pid-1] = true;
                                 continue;
@@ -488,25 +481,18 @@ public class PerfectLink {
     /**
      * Send an ACK for the message received, indicating which retransmits we are ACKing
      * @param dpRec DatagramPacket received
-     * @param mpRec MessagePacket received
+     * @param sRec Message received
      * @param rNum Retransmission number to ACK
      */
-    private void sendACK(DatagramPacket dpRec, MessagePacket mpRec, String rNum) {
+    private void sendACK(DatagramPacket dpRec, String sRec, String rNum) {
         String sendString;
-        byte[] sendBuf = null;
+        byte[] sendBuf;
         InetAddress destIp = dpRec.getAddress(); // IP to send to
-        int pid = Integer.parseInt(mpRec.getMessage().split(" ")[0]); // Pid to send to
+        int pid = Integer.parseInt(sRec.split(" ")[0]); // Pid to send to
         int destPort = portMap.get(pid); // Port to send to
-        // Message is "ACK pid retransmit:messageACKed"
-        // We don't need to send a W over the network in this case as won't be used
-        sendString = String.format("ACK %d %s:%s", id, rNum, mpRec.getMessage());
-        MessagePacket ackMessage = new MessagePacket(sendString, null);
+        sendString = String.format("ACK %d %s:%s", id, rNum, sRec); // Message is "ACK pid retransmit:messageACKed"
         // Prepare the packet to send and send it on the socket
-        try {
-            sendBuf = ackMessage.serialize();
-        } catch (IOException e) {
-            System.out.println("Impossible to serialize packet! " + e.toString());
-        }
+        sendBuf = sendString.getBytes();
         DatagramPacket dpSend =
                 new DatagramPacket(sendBuf, sendBuf.length, destIp, destPort);
         sendOnSocket(dpSend);
@@ -530,48 +516,39 @@ public class PerfectLink {
                 recOnSocket(dpRec);
                 Long now = System.nanoTime();
                 // Get message received
-                MessagePacket pRec = null;
-                try {
-                    pRec = MessagePacket.deserialize(trim(recBuf));
-                } catch (IOException | ClassNotFoundException e) {
-                    System.out.println("Impossible to deserialize packet! " + e.getMessage());
-                }
-                assert pRec != null;
-                if (!pRec.getMessage().contains("ACK")) {
+                String sRec = new String(trim(recBuf), StandardCharsets.UTF_8);
+                if (!sRec.contains("ACK")) {
                     // If it's a normal message, note which one is the retransmit to ack and ACK it
                     // Note: Message is delivered only if it wasn't received before
-                    String[] messAndResend = pRec.getMessage().split(","); // Resend number after the ,
-                    MessagePacket messagePacketRec = new MessagePacket(messAndResend[0], pRec.getW());
-                    if (!recMessage.contains(messagePacketRec)) {
+                    String[] messAndResend = sRec.split(","); // Resend number after the ,
+                    if (!recMessage.contains(messAndResend[0])) {
                         // Add to received
-                        recMessage.add(messagePacketRec);
+                        recMessage.add(messAndResend[0]);
                         try {
-                            messageToDeliver.put(messagePacketRec); // Deliver above
+                            messageToDeliver.put(messAndResend[0]); // Deliver above
                         } catch (InterruptedException e) {
                             System.out.println("Exception trying to deliver a message in PF " + e.toString());
                         }
                     }
                     // Send ACK
-                    sendACK(dpRec, messagePacketRec, messAndResend[1]); // Datagram, message, retransmit num
+                    sendACK(dpRec, messAndResend[0], messAndResend[1]); // Datagram, message, retransmit num
                 }
                 else{
                     // It's an ACK packet -> get the parameters from it
-                    String[] ackedPack = pRec.getMessage().split(":");
+                    String[] ackedPack = sRec.split(":");
                     String[] packInfo = ackedPack[0].split(" "); // Pid and retransmit num
                     int pid = Integer.parseInt(packInfo[1]);
                     int rNum = Integer.parseInt(packInfo[2].replace("r", ""));
                     InetAddress address = dpRec.getAddress(); // IP address
                     int port = portMap.get(pid); // Port
                     Packet.packType type;
-                    // Depending on length of the header message (2 or 3), determine the packet type (LCausal or URB)
+                    // Depending on length of the header message (2 or 3), determine the packet type (FIFO or URB)
                     if (ackedPack[1].split(" ").length == 2)
-                        type = Packet.packType.LCausal;
+                        type = Packet.packType.FIFO;
                     else
                         type = Packet.packType.URB;
                     // Create a packet with the known info and put in the queue for the ACKChecker
-                    // Note there's no need to put a W here as it's just a check for ACK
-                    // (and there wasn't one in the ACK message)
-                    Packet p = new Packet(new MessagePacket(ackedPack[1], null), address, port, pid, type);
+                    Packet p = new Packet(ackedPack[1], address, port, pid, type);
                     try {
                         // Create a packetTimeRnum with packet, time received and retransmit number
                         recACKs.put(new PacketTimeRnum(p, now, rNum));
@@ -647,9 +624,9 @@ public class PerfectLink {
                 Objects.equals(messageToSend, that.messageToSend) &&
                 Objects.equals(messageToDeliver, that.messageToDeliver) &&
                 Objects.equals(recACKs, that.recACKs) &&
-                Objects.equals(packetToSendLCausal, that.packetToSendLCausal) &&
+                Objects.equals(packetToSendFIFO, that.packetToSendFIFO) &&
                 Objects.equals(packetToSendURB, that.packetToSendURB) &&
-                Objects.equals(windowLCausal, that.windowLCausal) &&
+                Objects.equals(windowFIFO, that.windowFIFO) &&
                 Objects.equals(windowURB, that.windowURB) &&
                 Objects.equals(URBlsn, that.URBlsn) &&
                 Objects.equals(URBlsnCount, that.URBlsnCount) &&
@@ -663,7 +640,7 @@ public class PerfectLink {
     @Override
     public int hashCode() {
         return Objects.hash(id, myPort, dsSend, dsRec, portMap, messageToSend,
-                messageToDeliver, recACKs, packetToSendLCausal, packetToSendURB,
-                windowLCausal, windowURB, URBlsn, URBlsnCount, hosts, toRecAckProcess);
+                messageToDeliver, recACKs, packetToSendFIFO, packetToSendURB,
+                windowFIFO, windowURB, URBlsn, URBlsnCount, hosts, toRecAckProcess);
     }
 }
